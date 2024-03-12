@@ -36,22 +36,20 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         #     self.weight_scaler = self.word_embeddings.weight_scaler
 
     def forward(self, inputs):
-        # attention mask和input还需要处理一下, [batch_size, input_len, 1]
         input_ids, labels = inputs
         # 经过embedder计算, [batch_size, input_len, hidden_size]
         hidden_states = F.embedding(input_ids, self.weight)
         # gemma要使用hidden size对embedding输出进行正则化
         hidden_states = hidden_states * (torch.tensor(args.hidden_size)**0.5)
-        # 获得attention mask, 这里还需要验证一下
         attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device)
         # 获得rope频率
-        freqs_cis = precompute_freqs_cis(args.head_dim,
+        freqs = precompute_freqs_cis(args.head_dim,
                                          input_ids.shape[1],
                                          theta=args.rope_theta,
                                          train_pi=args.train_pi).to(hidden_states.device)
-        freqs_cis.requires_grad_(True)
+        freqs.requires_grad_(True)
         attention_mask.requires_grad_(True)
-        return hidden_states, freqs_cis, attention_mask, labels
+        return hidden_states, freqs, attention_mask, labels
 
 class DecoderPipelineLayer(torch.nn.Module):
     # 还需要对k,v cache进行处理
@@ -60,10 +58,10 @@ class DecoderPipelineLayer(torch.nn.Module):
         self.layer = model.model.layers[layer_idx]
 
     def forward(self, inputs):
-        hidden_states, freqs_cis, attention_mask, labels = inputs
+        hidden_states, freqs, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
-        hidden_states = self.layer(hidden_states, freqs_cis, attention_mask)
-        return hidden_states, freqs_cis, attention_mask, labels
+        hidden_states = self.layer(hidden_states, freqs, attention_mask)
+        return hidden_states, freqs, attention_mask, labels
     
 class FNormPipelineLayer(torch.nn.Module):
     def __init__(self, model: GemmaForCausalLM):
@@ -120,7 +118,6 @@ def get_model(model, args):
               *[LayerSpec(DecoderPipelineLayer, model=model, layer_idx=idx) for idx in
                 range(args.num_layers)],
               LayerSpec(FNormPipelineLayer, model=model),
-            #   TiedLayerSpec("embedder", SamplerPipelineLayer, model=model),
               LayerSpec(LossPipelineLayer)]
     return layers
 

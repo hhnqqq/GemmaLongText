@@ -13,9 +13,9 @@ options="$base_options \
     --gradient-accumulation-steps 1 \
     --warmup 0.02 \
     --device cuda \
-    --num-stages 4 \
-    --max-len 3072 \
-    --max-src-len 3000 \
+    --num-stages 8 \
+    --max-len 16384 \
+    --max-src-len 16000 \
     --seed 42 \
     --read-nums 1500 \
     --ds-config-path /workspace/gemma/gemma/ds_config/pineline.json \
@@ -27,7 +27,7 @@ options="$base_options \
     --use_lora \
     "
 
-run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /workspace/gemma/gemma/train.py ${options}"
+run_cmd="deepspeed --include localhost:0,1,2,3,4,5,6,7 --master_port 16666 /workspace/gemma/gemma/train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

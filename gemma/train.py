@@ -1,5 +1,3 @@
-# @created by: haonan he
-# @modified by: haonan he, zhijian jiang
 import os
 import time
 import random
@@ -7,18 +5,26 @@ import random
 import math
 import torch
 import deepspeed
+# deepspeed.ops.op_builder.CPUAdamBuilder().load()
 import numpy as np
 import torch.nn.functional as F
 
 from torch.utils.data import DataLoader
 from deepspeed.pipe import PipelineModule, TiedLayerSpec, LayerSpec
 
-from model import GemmaForCausalLM, precompute_freqs_cis
+from model import GemmaForCausalLM, Linear, LinearWithLoRA, precompute_freqs_cis
 from tokenizer import Tokenizer
 from parser import base_parser, train_parser, ds_parser
 from dataset import LongRopeDataset
 from utils import  Timer, print_rank_0, read_config, ensure_directory_exists
+from utils.params_manager import refresh_config, print_trainable_module_names, enable_trainable_params
 from config import *
+
+# try:
+#     from torch.utils.tensorboard import SummaryWriter
+# except ImportError:
+#     from tensorboard import SummaryWriter
+
 # class and function define
 class EmbeddingPipelineLayer(torch.nn.Module):
     def __init__(self, model: GemmaForCausalLM, args):
@@ -35,7 +41,7 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         # 经过embedder计算, [batch_size, input_len, hidden_size]
         hidden_states = F.embedding(input_ids, self.weight)
         # gemma要使用hidden size对embedding输出进行正则化
-        hidden_states = hidden_states * (args.hidden_size**0.5)
+        hidden_states = hidden_states * (torch.tensor(args.hidden_size)**0.5)
         # 获得attention mask, 这里还需要验证一下
         attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device)
         # 获得rope频率
@@ -43,6 +49,8 @@ class EmbeddingPipelineLayer(torch.nn.Module):
                                          input_ids.shape[1],
                                          theta=args.rope_theta,
                                          train_pi=args.train_pi).to(hidden_states.device)
+        freqs_cis.requires_grad_(True)
+        attention_mask.requires_grad_(True)
         return hidden_states, freqs_cis, attention_mask, labels
 
 class DecoderPipelineLayer(torch.nn.Module):
@@ -66,8 +74,8 @@ class FNormPipelineLayer(torch.nn.Module):
     def forward(self, inputs):
         hidden_states, _, _, labels = inputs
         # [batch_size, input_len, hidden_dim]
-        hidden_states = self.final_norm(hidden_states)
-        logits = torch.matmul(hidden_states, self.emb_weight.to(hidden_states.device).to(hidden_states.dtype))
+        logits = self.final_norm(hidden_states)
+        logits = torch.matmul(logits, self.emb_weight.to(hidden_states.device).to(hidden_states.dtype))
         return logits, labels
     
 class SamplerPipelineLayer(torch.nn.Module):
@@ -80,7 +88,6 @@ class SamplerPipelineLayer(torch.nn.Module):
         hidden_states, labels = inputs
         # [batch_size, input_len, vocab_size]
         logits = torch.matmul(hidden_states, self.emb_weight.t())
-        print(logits.shape, labels.shape)
         return logits, labels
 
 class LossPipelineLayer(torch.nn.Module):
@@ -109,10 +116,11 @@ def get_masks(seq_len, device):
     return attention_mask
 
 def get_model(model, args):
-    layers = [TiedLayerSpec("Embedding", EmbeddingPipelineLayer, model=model, args=args),
+    layers = [LayerSpec(EmbeddingPipelineLayer, model=model, args=args),
               *[LayerSpec(DecoderPipelineLayer, model=model, layer_idx=idx) for idx in
                 range(args.num_layers)],
               LayerSpec(FNormPipelineLayer, model=model),
+            #   TiedLayerSpec("embedder", SamplerPipelineLayer, model=model),
               LayerSpec(LossPipelineLayer)]
     return layers
 
@@ -122,6 +130,30 @@ def data_collator(examples):
         input_ids_list.append(instance["input_ids"])
         labels_list.append(instance["labels"])
     return ((torch.stack(input_ids_list), torch.stack(labels_list)), torch.stack(labels_list))
+
+def switch_to_lora(model, replace_names, rank=4, lora_scaler=32):
+    for name, module in model.named_modules():
+        for replace_name in replace_names:
+            if isinstance(module, Linear) and replace_name in name:
+                # 创建LinearWithLoRA实例
+                lora_layer = LinearWithLoRA(rank, lora_scaler, module.in_features, module.out_features, module.quant)
+                # 复制原始参数
+                lora_layer.weight.data = module.weight.data
+                if module.quant:
+                    lora_layer.weight_scaler = module.weight_scaler
+                # 用新层替换旧层
+                parent = get_parent_model(model, module)
+                setattr(parent, list(parent._modules.items())[list(parent._modules.values()).index(module)][0], lora_layer)
+
+def get_parent_model(parent_model, module):
+    for _, sub_module in parent_model._modules.items():
+        if sub_module is module:
+            return parent_model
+    for _, sub_module in parent_model._modules.items():
+        parent = get_parent_model(sub_module, module)
+        if parent:
+            return parent
+    return None
 
 
 # load args
@@ -138,9 +170,14 @@ set_random_seed(args.seed)
 
 # load model and dataset
 model_config = get_model_config(args.variant)
+print_rank_0('--->loading the model')
 model = GemmaForCausalLM(model_config)
 if args.ckpt_path is not None:
     model.load_weights(args.ckpt_path)
+if args.use_lora:
+    switch_to_lora(model, ['qkv_proj'], rank=8)
+enable_trainable_params(model, ['weight_a','weight_b'])
+print_trainable_module_names(model)
 args.head_dim = model_config.head_dim
 args.hidden_size = model_config.hidden_size
 args.num_layers = model_config.num_hidden_layers
@@ -150,9 +187,7 @@ model_pipe.to(device).half()
 tokenizer = Tokenizer(args.tokenizer_path)
 train_dataset = LongRopeDataset(args.data_path, tokenizer, args.max_len, args.max_src_len, args.read_nums)
 ds_config = read_config(args.ds_config_path, encoding=None)
-ds_config['gradient_accumulation_steps'] = args.gradient_accumulation_steps
-ds_config['train_micro_batch_size_per_gpu'] = args.batch_size_per_gpu
-ds_config['lr'] = args.lr
+ds_config = refresh_config(ds_config, args)
 
 g = torch.Generator()
 train_dataloader = DataLoader(train_dataset,
@@ -161,35 +196,43 @@ train_dataloader = DataLoader(train_dataset,
                             drop_last=True,
                             batch_size=args.batch_size_per_gpu,
                             generator=g)
-num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
-print_rank_0("--->len(train_dataloader) = {}".format(len(train_dataloader)), args.global_rank)
-print_rank_0("--->len(train_dataset) = {}".format(len(train_dataset)), args.global_rank)
-print_rank_0("--->args.batch_size_per_gpu = {}".format(args.batch_size_per_gpu), args.global_rank)
-print_rank_0("--->args.num_update_steps_per_epoch = {}".format(num_update_steps_per_epoch), args.global_rank)
+assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
+if args.epochs is not None:
+    num_update_steps = args.epochs * (math.ceil(len(train_dataloader) / args.gradient_accumulation_steps))
+else:
+    num_update_steps = args.train_iters/args.gradient_accumulation_steps
+num_warmup_steps = int(num_update_steps * args.warmup)
+ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = num_warmup_steps
+print_rank_0("--->TRAIN DATALOADER LENGTH: len(train_dataloader) = {}".format(len(train_dataloader)), args.global_rank)
+print_rank_0("--->TRAIN DATASET LENGTH: = {}".format(len(train_dataset)), args.global_rank)
+print_rank_0("--->TRAIN BATCH SIZE PER GPU: args.batch_size_per_gpu = {}".format(args.batch_size_per_gpu), args.global_rank)
+print_rank_0("--->NUMBER OF UPDATE STEPS: args.num_update_steps = {}".format(num_update_steps), args.global_rank)
+print_rank_0("--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {}".format(num_warmup_steps), args.global_rank)
 # start tranning
 
 train_dataloader = iter(deepspeed.utils.RepeatingLoader(train_dataloader))
-engine, _, _, _ = deepspeed.initialize(model=model_pipe, config=ds_config, model_parameters=model_pipe.parameters())
+engine, _, _, _ = deepspeed.initialize(model=model_pipe, config=ds_config, model_parameters=[p for p in model_pipe.parameters() if p.requires_grad])
 all_loss = 0.0
+print_rank_0('--->loaded the model, start training')
 with Timer() as timer:
-    for step in range(args.epochs * num_update_steps_per_epoch):
+    for step in range(num_update_steps):
         loss = engine.train_batch(data_iter=train_dataloader)
-        print_rank_0("step = {}, loss = {}".format(step, loss.item()), args.global_rank)
+        print_rank_0("--->step={}, loss={}".format(step, loss.item()), args.global_rank)
         all_loss += loss.item()
         if args.local_rank == 0:
             if (step + 1) % args.show_loss_step == 0:
                 now = time.time()
                 avg_time = (now - timer.start) / args.show_loss_step
                 avg_loss = all_loss / args.show_loss_step
-                print(f"Step={step:>6}, loss={avg_loss:.4f}, {avg_time:.2f} it/s")
+                print(f"--->step={step:>6}, loss={avg_loss:.4f}, {avg_time:.2f} it/s")
                 start = now
                 all_loss = 0.0
 
         if (step + 1) % args.save_interval == 0:
             print(f"Saving at step {step}")
             ensure_directory_exists(args.output_path)
-            engine.save_checkpoint(args.output_path)
+            engine.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-{step}')
     ensure_directory_exists(args.output_path)
-    engine.save_checkpoint(args.output_path)
+    engine.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-final')
 
 print_rank_0(f"--->total time cosumed is {timer.time_cost}")

@@ -54,7 +54,7 @@ class GemmaConfig:
     # Whether a quantized version of the model is used.
     quant: bool = False
     # The path to the model tokenizer.
-    tokenizer: Optional[str] = '/workspace/gemma/data/tokenizer.model'
+    tokenizer: Optional[str] = '/workspace/tokenizer.model'
 
     def get_dtype(self) -> Optional[torch.dtype]:
         """Gets the torch dtype from the config dtype string."""
@@ -74,29 +74,23 @@ def get_config_for_2b() -> GemmaConfig:
         intermediate_size=16384
     )
 
-<<<<<<< HEAD
 def get_config_for_test() -> GemmaConfig:
     return GemmaConfig(
-        num_hidden_layers=9,
-        num_attention_heads=8,
+        num_hidden_layers=6,
+        num_attention_heads=4,
         num_key_value_heads=1,
-        hidden_size=512,
-        intermediate_size=4096,
+        hidden_size=256,
+        intermediate_size=2048,
         dtype='float16'
     )
 
-=======
->>>>>>> ed45f654d052d9dc8e4e06d4d4d425065babe4af
 
 def get_model_config(variant: str) -> GemmaConfig:
     if variant == '7b':
         return get_config_for_7b()
     elif variant == '2b':
         return get_config_for_2b()
-<<<<<<< HEAD
     elif variant == 'test':
         return get_config_for_test()
-=======
->>>>>>> ed45f654d052d9dc8e4e06d4d4d425065babe4af
     return ValueError(f'Invalid variant {variant}. Supported variants are "2b"'
                       'and "7b"')

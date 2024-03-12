@@ -51,7 +51,7 @@ class Sampler(nn.Module):
         if temperatures is None:
             return torch.argmax(logits, dim=-1).squeeze(dim=-1)
 
-        # Apply temperature scaling.
+        # Apply temperature scaling. 将产生的logits进行缩放，小于1时将使输出更加的离散
         logits.div_(temperatures.unsqueeze(dim=1))
 
         # Calculate probabilities with softmax.
@@ -84,20 +84,21 @@ class Sampler(nn.Module):
 def precompute_freqs_cis(dim: int,
                          end: int,
                          theta: float = 10000.0,
-                         train_pi: Union[bool,int] = False) -> torch.Tensor:
+                         train_pi: Union[bool,None] = None) -> torch.Tensor:
     """Precomputes the frequency cis."""
     freqs = 1.0 / (theta**(torch.arange(0, dim, 2)[:(dim // 2)].float() / dim))
     t = torch.arange(end, device=freqs.device)
-    if train_pi != False:
+    if train_pi is not None:
         t = (torch.arange(end) / torch.tensor(train_pi)).to(freqs.device)
     # [end,dim]
     freqs = torch.outer(t, freqs).float()
-    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
-    return freqs_cis
+    # freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
+    return freqs
 
 
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
     """Applies the rotary embedding to the query and key tensors."""
+    freqs_cis = torch.polar(torch.ones_like(freqs_cis), freqs_cis)
     x_ = torch.view_as_complex(
         torch.stack(torch.chunk(x.transpose(1, 2).float(), 2, dim=-1),
                     dim=-1))
@@ -107,6 +108,20 @@ def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
                           -1).transpose(1, 2)
     return x_out
 
+# def apply_rotary_emb_1(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
+#     """Applies the rotary embedding to the query and key tensors."""
+#     # [bs, seq_len, h, d]
+#     freqs_cis = torch.polar(torch.ones_like(freqs_cis), freqs_cis)
+#     x_real, x_imag = torch.chunk(x.transpose(1, 2).float(), 2, dim=-1)
+#     x_real_emb = x_real * freqs_cis.real - x_imag * freqs_cis.imag
+#     x_imag_emb = x_real * freqs_cis.imag + x_imag * freqs_cis.real
+#     # Make x_real_emb and x_imag_emb contiguous before reshaping
+#     # [bs, h, seq_len, d]
+#     x_real_emb = x_real_emb.contiguous()
+#     x_imag_emb = x_imag_emb.contiguous()
+#     x_out = torch.cat([x_real_emb, x_imag_emb], dim=-1).type_as(x)
+#     x_out = x_out.reshape(x_out.shape[0], x_out.shape[1], x_out.shape[2], -1).transpose(1, 2)
+#     return x_out
 
 class Linear(nn.Module):
 
@@ -124,6 +139,8 @@ class Linear(nn.Module):
                 requires_grad=False,
             )
         self.quant = quant
+        self.in_features = in_features
+        self.out_features = out_features
 
     def forward(self, x):
         weight = self.weight
@@ -131,7 +148,40 @@ class Linear(nn.Module):
             weight = weight * self.weight_scaler.unsqueeze(-1)
         output = F.linear(x, weight)
         return output
+    
+class LinearWithLoRA(Linear):
+    def __init__(self, rank, lora_scaler, in_features: int, out_features: int, quant: bool):
+        self.lora_scaler = torch.tensor(lora_scaler/rank)
+        super().__init__(in_features, out_features, quant)
+        if self.quant:
+            self.weight_a = nn.Parameter(
+                torch.empty((rank, self.in_features)),
+                dtype=torch.int8
+            )
+            self.weight_b = nn.Parameter(
+                torch.zeros((self.out_features, rank)),
+                dtype=torch.int8
+            )
+            self.weight_a_scaler = nn.Parameter(torch.Tensor(rank))
+            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
+        else:
+            self.weight_a = nn.Parameter(torch.empty((rank, self.in_features)))
+            self.weight_b = nn.Parameter(torch.zeros((self.out_features, rank)))
+        nn.init.uniform_(self.weight_a, a=0.0, b=1.0)
+    
+    def forward(self, x):
+        if self.quant:
+            weight = self.weight * self.weight_scaler.unsqueeze(-1)
+            weight_a = self.weight_a * self.weight_a_scaler.unsqueeze(-1)
+            weight_b = self.weight_b * self.weight_b_scaler.unsqueeze(-1)
+        else:
+            weight = self.weight
+            weight_a, weight_b = self.weight_a, self.weight_b
 
+        lora_weight = torch.matmul(weight_b, weight_a)
+        weight = weight + lora_weight
+        output = F.linear(x, weight)
+        return output
 
 class Embedding(nn.Module):
 
@@ -470,7 +520,7 @@ class GemmaForCausalLM(nn.Module):
         prompts: Union[str, Sequence[str]],
         device: Any,
         output_len: int = 100,
-        temperature: float = 0.95,
+        temperature: Union[float,None] = None,
         top_p: float = 1.0,
         top_k: int = 100,
     ) -> Union[str, Sequence[str]]:
@@ -518,8 +568,11 @@ class GemmaForCausalLM(nn.Module):
         curr_mask_tensor = mask_tensor.index_select(2, input_positions_tensor)
         output_positions_tensor = torch.LongTensor([min_prompt_len - 1]).to(
             device)
-        temperatures_tensor = torch.FloatTensor([temperature] * batch_size).to(
-            device)
+        if temperature is not None:
+            temperatures_tensor = torch.FloatTensor([temperature] * batch_size).to(
+                device)
+        else:
+            temperatures_tensor = None
         top_ps_tensor = torch.FloatTensor([top_p] * batch_size).to(device)
         top_ks_tensor = torch.LongTensor([top_k] * batch_size).to(device)
         output_index = torch.tensor(min_prompt_len, dtype=torch.int64).to(
@@ -539,7 +592,6 @@ class GemmaForCausalLM(nn.Module):
                 top_ps=top_ps_tensor,
                 top_ks=top_ks_tensor,
             )
-
             curr_prompt_mask = prompt_mask_tensor.index_select(
                 1, output_index).squeeze(dim=1)
             curr_token_ids = token_ids_tensor.index_select(
@@ -555,6 +607,8 @@ class GemmaForCausalLM(nn.Module):
             output_positions_tensor = torch.tensor(0, dtype=torch.int64).to(
                 device)
             output_index = output_index + 1
+            if next_token_ids == self.tokenizer.eos_id:
+                break
 
         # Detokenization.
         token_ids = token_ids_tensor.tolist()
@@ -573,13 +627,15 @@ class GemmaForCausalLM(nn.Module):
     def load_weights(self, model_path: str):
         self.load_state_dict(
             torch.load(
-                model_path, mmap=True, weights_only=True,
+                model_path
             )['model_state_dict'],
             strict=False,
         )
 
 if __name__ == '__main__':
     import contextlib
+    import os
+    os.environ["CUDA_VISIBLE_DEVICES"] = "2"
     @contextlib.contextmanager
     def _set_default_tensor_type(dtype: torch.dtype):
         """Sets the default torch dtype to the given dtype."""
@@ -592,6 +648,6 @@ if __name__ == '__main__':
     device = 'cuda'
     with _set_default_tensor_type(model_config.get_dtype()):
         model = GemmaForCausalLM(model_config)
-        model.load_weights('/workspace/gemma/data/gemma-2b.ckpt')
+        model.load_weights('/home/modelfun/zhaokangkang/mini_LLama/gemma/gemma-2b-it.ckpt')
         model = model.to(device).eval()
     result = model.generate(['test','my name is lily'], device)

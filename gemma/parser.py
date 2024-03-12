@@ -1,5 +1,6 @@
 import argparse
 import deepspeed
+from typing import Union, List
 
 def base_parser():
     parser = argparse.ArgumentParser()
@@ -23,6 +24,10 @@ def train_parser(parser):
     group.add_argument('--batch-size-per-gpu', type=int, default=4,
                        help='batch size on a single GPU. batch-size * world_size = total batch_size.')
     group.add_argument('--lr', type=float, default=1.0e-4,
+                       help='initial learning rate')
+    group.add_argument('--warmup_min_lr', type=float, default=1.0e-5,
+                       help='initial learning rate')
+    group.add_argument('--warmup_max_lr', type=float, default=2.0e-4,
                        help='initial learning rate')
     group.add_argument('--fp16', action='store_true',
                        help='Run model in fp16 mode')
@@ -60,7 +65,10 @@ def train_parser(parser):
                        help='repe theta')
     group.add_argument('--show-loss-step', type=int, default=1)
     group.add_argument('--variant', type=str, default='2b')
-    group.add_argument('--train_pi', action='store_true')
+    group.add_argument('--train_pi', type=int, default=None)
+    group.add_argument('--use_lora', action='store_true')
+    group.add_argument('--lora_rank', type=int, default=8)
+    group.add_argument('--replace_modules', type=List[str], default=None)
     return parser
 
 def ds_parser(parser):

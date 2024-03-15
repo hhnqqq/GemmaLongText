@@ -42,7 +42,7 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         #     self.weight_scaler = self.word_embeddings.weight_scaler
 
     def forward(self, inputs):
-        # attention mask和input还需要处理一下, [batch_size, input_len, 1]
+        # [batch_size, input_len, 1]
         input_ids, labels = inputs
         # 经过embedder计算, [batch_size, input_len, hidden_size]
         hidden_states = F.embedding(input_ids, self.weight)

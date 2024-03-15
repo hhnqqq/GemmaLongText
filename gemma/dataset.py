@@ -53,5 +53,5 @@ class LongRopeDataset(Dataset):
         return instance
 
 if __name__ == '__main__':
-    z = LongRopeDataset('/home/modelfun/zhaokangkang/mini_LLama/gemma-data/LongQLoRA-SFT-Data-39k.jsonl', Tokenizer('/home/modelfun/zhaokangkang/Gemma/2/tokenizer.model'), 1024, 256, 1000)
+    z = LongRopeDataset('', Tokenizer(''), 1024, 256, 1000)
     print(z[0])

@@ -1,6 +1,5 @@
 import argparse
 import deepspeed
-from typing import Union, List
 
 def base_parser():
     parser = argparse.ArgumentParser()
@@ -25,10 +24,10 @@ def train_parser(parser):
                        help='batch size on a single GPU. batch-size * world_size = total batch_size.')
     group.add_argument('--lr', type=float, default=1.0e-4,
                        help='initial learning rate')
-    group.add_argument('--warmup_min_lr', type=float, default=1.0e-5,
-                       help='initial learning rate')
-    group.add_argument('--warmup_max_lr', type=float, default=2.0e-4,
-                       help='initial learning rate')
+    group.add_argument('--warmup-min-lr', type=float, default=1.0e-5,
+                       help='minimum learning rate of warmup')
+    group.add_argument('--warmup-max-lr', type=float, default=2.0e-4,
+                       help='maxium learning rate of warmup')
     group.add_argument('--fp16', action='store_true',
                        help='Run model in fp16 mode')
     group.add_argument('--bf16', action='store_true',
@@ -52,7 +51,7 @@ def train_parser(parser):
     group.add_argument('--device', type=str, default='cpu',
                        help='the device to load the model')
     group.add_argument('--num-stages', type=int, default=None,
-                       help='the pipeline stages')
+                       help='the pipeline stages, this value must be divisible by your GPU num')
     group.add_argument('--read-nums', type=int, default=None,
                        help='the number of data to read')
     group.add_argument('--max-len', type=int, default=None,
@@ -61,14 +60,26 @@ def train_parser(parser):
                        help='max len of input tokens')
     group.add_argument('--seed', type=int, default=None,
                        help='random seed')
-    group.add_argument('--rope-theta', default=1000.0,
-                       help='repe theta')
+    group.add_argument('--rope-theta', default=10000.0,
+                       help='rope theta')
     group.add_argument('--show-loss-step', type=int, default=1)
-    group.add_argument('--variant', type=str, default='2b')
-    group.add_argument('--train_pi', type=int, default=None)
-    group.add_argument('--use_lora', action='store_true')
-    group.add_argument('--lora_rank', type=int, default=8)
-    group.add_argument('--replace_modules', type=List[str], default=None)
+    group.add_argument('--variant', type=str, default='2b',choices=['test', '2b', '7b'],
+                       help='the variant of the model.')
+    group.add_argument('--train-pi', type=int, default=None,
+                       help='In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
+    group.add_argument('--use-lora', action='store_true',
+                       help='weather to use lora')
+    group.add_argument('--lora-rank', type=int, default=8,
+                       help='the rank of lora')
+    group.add_argument('--replace-modules', nargs='+', type=str, default=None,
+                       help='List of modules to be replaced by lora')
+    group.add_argument('--enable-list', nargs='+', type=str, default=None, 
+                       help='List of enable params')
+    group.add_argument('--disable-list', nargs='+', type=str, default=None, 
+                       help='List of disable params')
+    group.add_argument('--activation-checkpoint', action='store_true', 
+                       help='Train model with activation checkpoint')
+
     return parser
 
 def ds_parser(parser):
@@ -81,6 +92,10 @@ def ds_parser(parser):
                       help="global rank")
     group.add_argument("--with-aml-log", default=True, 
                       help="Use Azure ML metric logging")
+    group.add_argument("--offload-optimizer", action='store_true')
+    group.add_argument("--offload-param", action='store_true')
+    group.add_argument("--csv-monitor", action='store_true')
+    group.add_argument("--monitor-file-path", type=str)
 
     # Include DeepSpeed configuration arguments
     parser = deepspeed.add_config_arguments(parser)

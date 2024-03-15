@@ -1,33 +1,41 @@
 #! /bin/bash
 base_options="--data-path /workspace/longtext-2k-clean.jsonl \
 --tokenizer-path /workspace/tokenizer.model \
---output-path /root/autodl-tmp/output \
---ckpt-path /root/autodl-tmp/gemma-2b-it.ckpt
+--output-path /workspace/gemma/output \
+--ckpt-path /workspace/gemma-2b-it.ckpt
 "
+
+# disable_list=("embedder","mlp")
 
 options="$base_options \
     --experiment-name train_pi_test \
-    --epochs 2 \
-    --batch-size-per-gpu 2 \
+    --show-loss-step 1 \
+    --epochs 3 \
+    --batch-size-per-gpu 1 \
     --fp16 \
-    --gradient-accumulation-steps 1 \
+    --gradient-accumulation-steps 2 \
     --warmup 0.02 \
     --device cuda \
-    --num-stages 8 \
-    --max-len 16384 \
-    --max-src-len 16000 \
+    --num-stages 7 \
+    --max-len 15000 \
+    --max-src-len 14000 \
     --seed 42 \
-    --read-nums 1500 \
+    --read-nums 100 \
     --ds-config-path /workspace/gemma/gemma/ds_config/pineline.json \
     --variant 2b \
-    --train_pi 2 \
+    --train-pi 2 \
     --lr 2e-5 \
-    --warmup_min_lr 1e-6 \
-    --warmup_max_lr 2e-5 \
-    --use_lora \
+    --warmup-min-lr 1e-6 \
+    --warmup-max-lr 2e-5 \
+    --use-lora \
+    --activation-checkpoint \
     "
 
-run_cmd="deepspeed --include localhost:0,1,2,3,4,5,6,7 --master_port 16666 /workspace/gemma/gemma/train.py ${options}"
+# for item in "${disable_list[@]}"; do
+#     options+=" \"$item\""
+# done
+
+run_cmd="deepspeed --include localhost:0,1,2,3,4,5,6 --master_port 16666 /workspace/gemma/gemma/train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

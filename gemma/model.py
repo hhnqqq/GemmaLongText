@@ -108,21 +108,6 @@ def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
                           -1).transpose(1, 2)
     return x_out
 
-# def apply_rotary_emb_1(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
-#     """Applies the rotary embedding to the query and key tensors."""
-#     # [bs, seq_len, h, d]
-#     freqs_cis = torch.polar(torch.ones_like(freqs_cis), freqs_cis)
-#     x_real, x_imag = torch.chunk(x.transpose(1, 2).float(), 2, dim=-1)
-#     x_real_emb = x_real * freqs_cis.real - x_imag * freqs_cis.imag
-#     x_imag_emb = x_real * freqs_cis.imag + x_imag * freqs_cis.real
-#     # Make x_real_emb and x_imag_emb contiguous before reshaping
-#     # [bs, h, seq_len, d]
-#     x_real_emb = x_real_emb.contiguous()
-#     x_imag_emb = x_imag_emb.contiguous()
-#     x_out = torch.cat([x_real_emb, x_imag_emb], dim=-1).type_as(x)
-#     x_out = x_out.reshape(x_out.shape[0], x_out.shape[1], x_out.shape[2], -1).transpose(1, 2)
-#     return x_out
-
 class Linear(nn.Module):
 
     def __init__(self, in_features: int, out_features: int, quant: bool):
@@ -648,6 +633,6 @@ if __name__ == '__main__':
     device = 'cuda'
     with _set_default_tensor_type(model_config.get_dtype()):
         model = GemmaForCausalLM(model_config)
-        model.load_weights('/home/modelfun/zhaokangkang/mini_LLama/gemma/gemma-2b-it.ckpt')
+        model.load_weights('/workspace/gemma-2b-it.ckpt')
         model = model.to(device).eval()
     result = model.generate(['test','my name is lily'], device)

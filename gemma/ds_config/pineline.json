@@ -10,14 +10,29 @@
         ],
         "eps": 1e-8,
         "weight_decay": 5e-4
+    },
+    "scheduler": {
+        "type": "WarmupLR",
+        "params": {
+            "warmup_min_lr": "auto",
+            "warmup_max_lr": "auto",
+            "warmup_num_steps": "auto"
+        }
     }
 },
 "fp16": {
     "enabled": true
 },
+"bf16": {
+    "enabled": true
+},
 "zero_optimization": {
     "stage": 1,
     "offload_optimizer": {
+        "device": "cpu",
+        "pin_memory": true
+    },
+    "offload_param": {
         "device": "cpu",
         "pin_memory": true
     },
@@ -27,6 +42,11 @@
     "reduce_scatter": true,
     "reduce_bucket_size": 2e8,
     "contiguous_gradients": true
+},
+"csv_monitor": {
+    "enabled": false,
+    "output_path": "output/ds_logs/",
+    "job_name": "test"
 },
 "steps_per_print": 5
 }

@@ -12,10 +12,12 @@ from torch.utils.data import DataLoader
 from torch.utils.checkpoint import checkpoint
 from deepspeed.pipe import PipelineModule, TiedLayerSpec, LayerSpec
 
+from config import *
 from tokenizer import Tokenizer
 from parser import base_parser, train_parser, ds_parser
 from dataset import LongRopeDataset
 from model import GemmaForCausalLM, Linear, LinearWithLoRA, precompute_freqs_cis
+from utils.optimizer import get_optimizer
 from utils import  Timer, print_rank_0, read_config, ensure_directory_exists
 from utils.params_manager import (
     refresh_config, 
@@ -23,7 +25,6 @@ from utils.params_manager import (
     enable_trainable_params, 
     disable_untrainable_params
 )
-from config import *
 
 # try:
 #     from torch.utils.tensorboard import SummaryWriter
@@ -42,7 +43,7 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         #     self.weight_scaler = self.word_embeddings.weight_scaler
 
     def forward(self, inputs):
-        # [batch_size, input_len, 1]
+        # attention mask和input还需要处理一下, [batch_size, input_len, 1]
         input_ids, labels = inputs
         # 经过embedder计算, [batch_size, input_len, hidden_size]
         hidden_states = F.embedding(input_ids, self.weight)
@@ -175,6 +176,7 @@ else:
     torch.cuda.set_device(args.local_rank)
     device = torch.device("cuda", args.local_rank)
     deepspeed.init_distributed(dist_backend="nccl")
+gpu_count = torch.cuda.device_count()
 args.global_rank = torch.distributed.get_rank()
 set_random_seed(args.seed)
 
@@ -188,7 +190,7 @@ args.head_dim = model_config.head_dim
 args.hidden_size = model_config.hidden_size
 args.num_layers = model_config.num_hidden_layers
 
-model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_stages)
+model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_stages, partition_method='uniform')
 if args.use_lora:
     if args.replace_modules is None:
         args.replace_modules = ['qkv_proj']
@@ -220,24 +222,30 @@ train_dataloader = DataLoader(train_dataset,
 
 assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
 if args.epochs is not None:
-    num_update_steps = args.epochs * (math.ceil(len(train_dataloader) / args.gradient_accumulation_steps))
+    args.num_update_steps = args.epochs * (math.ceil(len(train_dataloader) / (args.gradient_accumulation_steps)))
 else:
-    num_update_steps = args.train_iters/args.gradient_accumulation_steps
-num_warmup_steps = int(num_update_steps * args.warmup)
-ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = num_warmup_steps
+    args.num_update_steps = args.train_iters/args.gradient_accumulation_steps
+args.num_warmup_steps = int(args.num_update_steps * args.warmup)
+ds_config["optimizer"]["scheduler"]["params"]["warmup_num_steps"] = args.num_warmup_steps
 print_rank_0("--->TRAIN DATALOADER LENGTH: len(train_dataloader) = {}".format(len(train_dataloader)), args.global_rank)
 print_rank_0("--->TRAIN DATASET LENGTH: = {}".format(len(train_dataset)), args.global_rank)
 print_rank_0("--->TRAIN BATCH SIZE PER GPU: args.batch_size_per_gpu = {}".format(args.batch_size_per_gpu), args.global_rank)
-print_rank_0("--->NUMBER OF UPDATE STEPS: args.num_update_steps = {}".format(num_update_steps), args.global_rank)
-print_rank_0("--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {}".format(num_warmup_steps), args.global_rank)
+print_rank_0("--->NUMBER OF UPDATE STEPS: args.num_update_steps = {}".format(args.num_update_steps), args.global_rank)
+print_rank_0("--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {}".format(args.num_warmup_steps), args.global_rank)
 # start tranning
 
 train_dataloader = iter(deepspeed.utils.RepeatingLoader(train_dataloader))
-engine, _, _, _ = deepspeed.initialize(model=model_pipe, config=ds_config, model_parameters=[p for p in model_pipe.parameters() if p.requires_grad])
+optimizer, lr_scheduler = get_optimizer(ds_config, args, model=model_pipe)
+engine, optimizer, _, _ = deepspeed.initialize(model=model_pipe, 
+                                               optimizer=optimizer, 
+                                               lr_scheduler=lr_scheduler,
+                                               config=ds_config, 
+                                               model_parameters=[p for p in model_pipe.parameters() if p.requires_grad])
+
 all_loss = 0.0
 print_rank_0('--->loaded the model, start training', args.global_rank)
 with Timer() as timer:
-    for step in range(num_update_steps):
+    for step in range(args.num_update_steps):
         start_time = time.time()
         loss = engine.train_batch(data_iter=train_dataloader)
         all_loss += loss.item()

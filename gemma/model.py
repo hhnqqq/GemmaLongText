@@ -58,7 +58,7 @@ class Sampler(nn.Module):
         probs = torch.softmax(logits, dim=-1, dtype=torch.float)
         probs_sort, probs_idx = torch.sort(probs, dim=-1, descending=True)
 
-        # Apply top-p, top-k.
+        # Apply top-p, top-k. 以下代码可能在某些环境下会无法运行
         probs_sum = torch.cumsum(probs_sort, dim=-1)
         top_ps_mask = (probs_sum - probs_sort) > top_ps.unsqueeze(dim=1)
         probs_sort = torch.where(top_ps_mask, 0, probs_sort)
@@ -451,10 +451,10 @@ class GemmaForCausalLM(nn.Module):
 
         # Pre-compute rotary embedding table.
         rope_theta = getattr(config, 'rope_theta', 10000)
-        freqs_cis = precompute_freqs_cis(head_dim,
+        self.freqs_cis = precompute_freqs_cis(head_dim,
                                          max_seq_len * 2,
-                                         theta=rope_theta)
-        self.register_buffer('freqs_cis', freqs_cis)
+                                         theta=rope_theta).to('cuda')
+        # self.register_buffer('freqs_cis', freqs_cis)
 
     @torch.no_grad()
     def forward(
@@ -610,12 +610,22 @@ class GemmaForCausalLM(nn.Module):
         return results[0] if is_str_prompt else results
 
     def load_weights(self, model_path: str):
-        self.load_state_dict(
-            torch.load(
-                model_path
-            )['model_state_dict'],
-            strict=False,
-        )
+        try:
+            state_dict = torch.load(
+                    model_path
+                )['model_state_dict']
+            self.load_state_dict(
+                state_dict,
+                strict=False,
+            )
+        except:
+            state_dict = torch.load(
+                    model_path
+                )
+            self.load_state_dict(
+                state_dict,
+                strict=False,
+            )    
 
 if __name__ == '__main__':
     import contextlib

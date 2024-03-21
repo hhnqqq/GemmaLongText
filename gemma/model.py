@@ -281,7 +281,8 @@ class GemmaAttention(nn.Module):
         freqs_cis: torch.Tensor,
         mask: torch.Tensor,
         kv_write_indices: Union[torch.Tensor,None]=None,
-        kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,            
+        kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,
+        flash_atten: bool = False            
         ) -> torch.Tensor:
         hidden_states_shape = hidden_states.shape
         if len(hidden_states_shape) == 2:
@@ -329,15 +330,17 @@ class GemmaAttention(nn.Module):
         k = key.transpose(1, 2)
         v = value.transpose(1, 2)
 
-        # [batch_size, n_local_heads, input_len, max_seq_len]
-        scores = torch.matmul(q, k.transpose(2, 3)) * self.scaling
-        scores = scores + mask
-        scores = F.softmax(scores.float(), dim=-1).type_as(q)
-
-        # [batch_size, n_local_heads, input_len, head_dim]
-        output = torch.matmul(scores, v)
-
-        # [batch_size, input_len, hidden_dim]
+        if flash_atten:
+            with torch.backends.cuda.enable_flash_sdp(enabled=True):
+                output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+        else:
+            # [batch_size, n_local_heads, input_len, max_seq_len]
+            scores = torch.matmul(q, k.transpose(2, 3)) * self.scaling
+            scores = scores + mask
+            scores = F.softmax(scores.float(), dim=-1).type_as(q)
+            # [batch_size, n_local_heads, input_len, head_dim]
+            output = torch.matmul(scores, v)
+            # [batch_size, input_len, hidden_dim]
         output = (output.transpose(1, 2).contiguous().view(
             batch_size, input_len, -1))
         output = self.o_proj(output)
@@ -375,6 +378,7 @@ class GemmaDecoderLayer(nn.Module):
         mask: torch.Tensor,
         kv_write_indices: Union[torch.Tensor,None]=None,
         kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,
+        flash_atten: bool = False
     ) -> torch.Tensor:
         # Self Attention
         residual = hidden_states
@@ -385,6 +389,7 @@ class GemmaDecoderLayer(nn.Module):
             kv_write_indices=kv_write_indices,
             kv_cache=kv_cache,
             mask=mask,
+            flash_atten=flash_atten,
         )
         hidden_states = residual + hidden_states
 
@@ -415,7 +420,7 @@ class GemmaModel(nn.Module):
         freqs_cis: torch.Tensor,
         kv_write_indices: torch.Tensor,
         kv_caches: List[Tuple[torch.Tensor, torch.Tensor]],
-        mask: torch.Tensor,
+        mask: torch.Tensor
     ) -> torch.Tensor:
         for i in range(len(self.layers)):
             layer = self.layers[i]

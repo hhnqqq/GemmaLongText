@@ -50,7 +50,7 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         # gemma要使用hidden size对embedding输出进行正则化
         hidden_states = hidden_states * (torch.tensor(args.hidden_size)**0.5)
         # 获得attention mask, 这里还需要验证一下
-        attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device)
+        attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device, dtype=hidden_states.dtype)
         # 获得rope频率
         freqs_cis = precompute_freqs_cis(args.head_dim,
                                          input_ids.shape[1],
@@ -71,7 +71,7 @@ class DecoderPipelineLayer(torch.nn.Module):
         hidden_states, freqs_cis, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
         if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask)
+            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask, args.flash_atten)
         else:
             hidden_states = self.layer(hidden_states, freqs_cis, attention_mask)
         return hidden_states, freqs_cis, attention_mask, labels
@@ -120,10 +120,10 @@ def set_random_seed(seed):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-def get_masks(seq_len, device):
+def get_masks(seq_len, device, dtype):
     attention_mask = torch.full((1, 1, seq_len, seq_len),
                 -2.3819763e38).to(torch.float)
-    attention_mask = torch.triu(attention_mask, diagonal=1).to(device)
+    attention_mask = torch.triu(attention_mask, diagonal=1).to(device).to(dtype)
     return attention_mask
 
 def get_model(model, args):
@@ -191,7 +191,7 @@ args.hidden_size = model_config.hidden_size
 args.num_layers = model_config.num_hidden_layers
 
 model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_stages, partition_method='uniform')
-if args.use_lora:
+if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
         args.replace_modules = ['qkv_proj']
     switch_to_lora(model_pipe, args.replace_modules, rank=4)
@@ -246,16 +246,15 @@ all_loss = 0.0
 print_rank_0('--->loaded the model, start training', args.global_rank)
 with Timer() as timer:
     for step in range(args.num_update_steps):
-        start_time = time.time()
+        timer.average_time(entry='start')
         loss = engine.train_batch(data_iter=train_dataloader)
         all_loss += loss.item()
         if args.local_rank == 0:
             if (step + 1) % args.show_loss_step == 0:
-                now = time.time()
-                avg_time = (now - start_time) / args.show_loss_step
+                timer.average_time(entry='end')
+                avg_time = (timer.loop_time) / args.show_loss_step
                 avg_loss = all_loss / args.show_loss_step
-                print_rank_0(f"--->step={step}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}it/s")
-                start = now
+                print_rank_0(f"--->step={step+1}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}it/s")
                 all_loss = 0.0
 
         if (step + 1) % args.save_interval == 0:

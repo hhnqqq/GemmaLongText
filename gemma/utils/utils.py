@@ -7,24 +7,31 @@ import configparser
 """with 环境用法：进入with语句之后，类中__enter__对应的返回值将被赋值给as后面的变量名
 with之后的代码执行"""
 class Timer(object):
-    '''用法：
-
-    with Timer() as timer:
-        your code
-    print(f"cost:{timer.time_cost}")
-    print(f"start:{timer.start}")
-    print(f"end:{timer.end}")
-    '''
     def __init__(self, start=None, n_round=2):
         self.round = n_round
-        self.start = round(start if start is not None else time.time(),self.round)
+        self.start = round(start if start is not None else time.time(), self.round)
+        self.loop_start = None
+
     def __enter__(self):
-        return self  
+        return self
+
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.stop = round(time.time(),self.round)
+        self.stop = round(time.time(), self.round)
         self.time_cost = round(self.stop - self.start, self.round)
-        self.formated_time_cost = f"{int(self.time_cost//60)}min {self.time_cost%60}s"
+        self.formatted_time_cost = f"{int(self.time_cost//60)}min {self.time_cost%60}s"
         return exc_type is None
+
+    def average_time(self, entry):
+        current_time = round(time.time(), self.round)
+        if entry=='start':
+            if self.loop_start is None:
+                self.loop_start = current_time
+        elif entry=='end':
+            loop_end = current_time
+            self.loop_time = round(loop_end - self.loop_start, self.round)
+            self.loop_start = None
+        else:
+            raise ValueError("Invalid entry value. Expected 'start' or 'end'.")
     
 
 def print_rank_0(msg, rank=0):
@@ -53,3 +60,10 @@ def ensure_directory_exists(directory):
     if not os.path.exists(directory):
         os.makedirs(directory)
         print('>>> 目录不存在，已新建对应目录')
+
+def count_trainable_parameters(model):
+    trainable_params = filter(lambda p: p.requires_grad, model.parameters())
+    num_trainable_params = sum([torch.numel(p) for p in trainable_params])
+    return num_trainable_params
+
+

@@ -90,6 +90,14 @@ def train_parser(parser):
                        help='the scaler of lora weight b')
     group.add_argument('--replace-modules', nargs='+', type=str, default=None,
                        help='List of modules to be replaced by lora')
+    
+    # --------------------------- galore ----------------------------------
+    group.add_argument('--use-galore', action='store_true',
+                    help='weather to use galore')
+    group.add_argument('--galore-rank', type=int, default=8,
+                       help='the rank of galore')
+    group.add_argument('--galore-scaler', type=float, default=0.25,
+                       help='the scaler of galore')
 
     # -------------------------- others ----------------------------
     group.add_argument('--seed', type=int, default=None,
@@ -99,6 +107,8 @@ def train_parser(parser):
                        help='rope theta')
     group.add_argument('--train-pi', type=int, default=None,
                        help='In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
+    group.add_argument('--flash-atten', action='store_true',
+                       help='weather to flash attention')
 
     return parser
 

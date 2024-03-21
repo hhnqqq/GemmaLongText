@@ -48,5 +48,7 @@
     "output_path": "output/ds_logs/",
     "job_name": "test"
 },
-"steps_per_print": 5
+"steps_per_print": 5,
+"zero_allow_untested_optimizer": true,
+"zero_force_ds_cpu_optimizer": false
 }

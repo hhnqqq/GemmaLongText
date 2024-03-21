@@ -12,14 +12,14 @@ from torch.utils.data import DataLoader
 from torch.utils.checkpoint import checkpoint
 from deepspeed.pipe import PipelineModule, TiedLayerSpec, LayerSpec
 
-from config import *
-from tokenizer import Tokenizer
-from parser import base_parser, train_parser, ds_parser
-from dataset import LongRopeDataset
-from model import GemmaForCausalLM, Linear, LinearWithLoRA, precompute_freqs_cis
-from utils.optimizer import get_optimizer
-from utils import  Timer, print_rank_0, read_config, ensure_directory_exists
-from utils.params_manager import (
+from gemma.config import *
+from gemma.tokenizer import Tokenizer
+from gemma.parser import base_parser, train_parser, ds_parser
+from gemma.dataset import LongRopeDataset
+from gemma.model import GemmaForCausalLM, Linear, LinearWithLoRA, precompute_freqs_cis
+from gemma.utils.optimizer import get_optimizer
+from gemma.utils import  Timer, print_rank_0, read_config, ensure_directory_exists
+from gemma.utils.params_manager import (
     refresh_config, 
     print_trainable_module_names, 
     enable_trainable_params, 
@@ -254,13 +254,14 @@ with Timer() as timer:
                 timer.average_time(entry='end')
                 avg_time = (timer.loop_time) / args.show_loss_step
                 avg_loss = all_loss / args.show_loss_step
-                print_rank_0(f"--->step={step+1}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}it/s")
+                print_rank_0(f"--->step={step+1}, avg_loss={avg_loss:.4f}, avg_time={avg_time:.2f}s")
                 all_loss = 0.0
 
         if (step + 1) % args.save_interval == 0:
-            print(f"Saving at step {step}")
+            step_name = str(step)
+            print(f"Saving at step: {step_name}")
             ensure_directory_exists(args.output_path)
-            engine.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-{step}')
+            engine.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-{step_name}')
     ensure_directory_exists(args.output_path)
     engine.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-final')
 

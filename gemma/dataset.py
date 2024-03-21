@@ -2,7 +2,7 @@
 import json
 import torch
 from torch.utils.data import Dataset
-from tokenizer import Tokenizer
+from gemma.tokenizer import Tokenizer
 from tqdm import tqdm
 from typing import Union
 

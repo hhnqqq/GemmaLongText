@@ -1,6 +1,6 @@
 import torch.optim as optim
-from utils import print_rank_0
-from utils.scheduler import AnnealingLR
+from gemma.utils import print_rank_0
+from gemma.utils.scheduler import AnnealingLR
 
 def get_optimizer(ds_config, args, model):
     # TODO: 增加对DoRA, pLoRA等微调方法的支持

@@ -2,7 +2,9 @@ import os
 import time
 import json
 import torch
+import random
 import configparser
+import numpy as np
 
 """with 环境用法：进入with语句之后，类中__enter__对应的返回值将被赋值给as后面的变量名
 with之后的代码执行"""
@@ -66,4 +68,50 @@ def count_trainable_parameters(model):
     num_trainable_params = sum([torch.numel(p) for p in trainable_params])
     return num_trainable_params
 
+def to_device(batch, device):
+    output = {}
+    for k, v in batch.items():
+        try:
+            output[k] = v.to(device)
+        except:
+            output[k] = v
+    return output
 
+class DataCollator(object):
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+        self.pad_token_id = tokenizer.pad_id
+
+    def __call__(self, examples):
+        input_ids_list, labels_list = [], []
+        for instance in examples:
+            input_ids = instance["input_ids"]
+            labels = instance["labels"]
+
+            input_ids_list.append(input_ids)
+            labels_list.append(labels)
+
+        return {"input_ids": torch.stack(input_ids_list),
+                "labels": torch.stack(labels_list)}
+    
+def to_device(batch, device):
+    output = {}
+    for k, v in batch.items():
+        try:
+            output[k] = v.to(device)
+        except:
+            output[k] = v
+    return output
+
+def set_random_seed(seed):
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+def get_masks(seq_len, device):
+    attention_mask = torch.full((1, 1, seq_len, seq_len),
+                -2.3819763e38).to(torch.float)
+    attention_mask = torch.triu(attention_mask, diagonal=1).to(device)
+    return attention_mask

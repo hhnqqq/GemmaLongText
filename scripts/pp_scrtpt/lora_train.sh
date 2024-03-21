@@ -5,8 +5,6 @@ base_options="--data-path /workspace/longtext-2k-clean.jsonl \
 --ckpt-path /workspace/gemma-2b-it.ckpt
 "
 
-disable_list=("embedder","mlp")
-
 options="$base_options \
     --experiment-name train_pi_test \
     --show-loss-step 1 \
@@ -16,29 +14,24 @@ options="$base_options \
     --gradient-accumulation-steps 2 \
     --warmup 0.02 \
     --device cuda \
-    --num-stages 1 \
-    --max-len 1024 \
-    --max-src-len 512 \
+    --num-stages 4 \
+    --max-len 16384 \
+    --max-src-len 16000 \
     --seed 42 \
-    --read-nums 100 \
+    --read-nums 1500 \
     --ds-config-path /workspace/gemma_long_rope/gemma/ds_config/pineline.json \
     --variant 2b \
     --train-pi 2 \
     --lr 1e-5 \
     --warmup-min-lr 1e-6 \
     --warmup-max-lr 2e-5 \
-    --diy-optimizer \
-    --use-galore \
-    --optim-type galore_adamw8bit \
+    --use-lora \
     --activation-checkpoint \
-    --disable-list \
+    --diy-optimizer \
+    --flash-atten \
     "
 
-for item in "${disable_list[@]}"; do
-    options+=" \"$item\""
-done
-
-run_cmd="deepspeed --include localhost:0 --master_port 16666 /workspace/gemma_long_rope/gemma/train.py ${options}"
+run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /workspace/gemma_long_rope/train/pp_train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

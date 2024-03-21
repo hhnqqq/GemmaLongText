@@ -40,6 +40,8 @@ def refresh_config(ds_config, args):
     ds_config['gradient_accumulation_steps'] = args.gradient_accumulation_steps
     ds_config['train_micro_batch_size_per_gpu'] = args.batch_size_per_gpu
     ds_config['optimizer']['params']['lr'] = args.lr
+    if 'train_batch_size' in ds_config:
+        ds_config['train_batch_size'] = args.batch_size_per_gpu * args.gpu_count
     if args.csv_monitor:
         ds_config["csv_monitor"]["enabled"] = True
         ds_config["csv_monitor"]["output_path"] = args.monitor_file_path

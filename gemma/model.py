@@ -18,6 +18,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from typing import Any, List, Optional, Sequence, Tuple, Union
+from transformers.utils.versions import require_version
 
 from gemma import config as gemma_config
 from gemma import tokenizer
@@ -331,6 +332,7 @@ class GemmaAttention(nn.Module):
         v = value.transpose(1, 2)
 
         if flash_atten:
+            require_version("torch>=2.0.0")
             with torch.backends.cuda.enable_flash_sdp(enabled=True):
                 output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
         else:
@@ -418,9 +420,9 @@ class GemmaModel(nn.Module):
         self,
         hidden_states: torch.Tensor,
         freqs_cis: torch.Tensor,
-        kv_write_indices: torch.Tensor,
-        kv_caches: List[Tuple[torch.Tensor, torch.Tensor]],
-        mask: torch.Tensor
+        mask: torch.Tensor,
+        kv_write_indices: Union[torch.Tensor, None]=None,
+        kv_caches: Union[List[Tuple[torch.Tensor, torch.Tensor]],None]=None,
     ) -> torch.Tensor:
         for i in range(len(self.layers)):
             layer = self.layers[i]
@@ -428,7 +430,7 @@ class GemmaModel(nn.Module):
                 hidden_states=hidden_states,
                 freqs_cis=freqs_cis,
                 kv_write_indices=kv_write_indices,
-                kv_cache=kv_caches[i],
+                kv_cache=kv_caches[i] if kv_caches is not None else None,
                 mask=mask,
             )
         hidden_states = self.norm(hidden_states)

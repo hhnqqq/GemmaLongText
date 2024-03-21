@@ -1,4 +1,4 @@
-# 使用deepspeed流水线并行构建一个支持长文本的gemma-2b
+# 使用deepspeed构建一个支持长文本的gemma-2b/7b
 
 ### 环境配置
 - 下载好预训练checkpoint: [gemma.ckpt](https://www.kaggle.com/models/google/gemma/frameworks/pyTorch)
@@ -9,7 +9,8 @@
 
 ### 使用方法
 - 选择使用的微调方法，lora/lora+/galore/全量
-- 根据本地条件编辑对应的脚本，如使用lora时编辑scripts/lora_train.sh
+- 选择你使用的并行训练方法：pp/dp
+- 根据本地条件编辑对应的脚本，如使用lora和pp时时编辑/scripts/pp_scrtpt/lora_train.sh
 - 首先需要编辑base options中的设置
     - 替换data-path为你的数据集地址，数据集要求为jsonl格式，包含input、output两个键
     - 替换output-path为你的模型checkpoint保存地址
@@ -60,15 +61,16 @@ set +x
 - 新增支持自定义optimizer
 - 新增支持sat库中的lr scheduler
 - 新增支持lora+ （给lora的两个参数矩阵A,B赋予不同的学习率，可以带来更好的性能表现，更快的收敛速度）
-- 2024-03-20 新增支持[galore](https://github.com/jiaweizzhao/GaLore)(代码还未完全测试)
+- 2024-03-20 新增支持[galore](https://github.com/jiaweizzhao/GaLore)(使用会出现梯度维度问题，待修改)
 - 2024-03-21 新增支持torch的flash-attention实现
+- 2024-03-21 新增支持纯dp训练
 
 ### TODO
-- 支持无流水线并行，全dp训练
 - 支持更多的lora版本如lora-fa
 - 支持更多的长度外推方法
 - 支持更多的memory efficient方法
 - 以及更多的先进技术
+- 完善scheduler的代码
 
 ### 感谢
 

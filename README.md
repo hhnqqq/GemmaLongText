@@ -2,7 +2,8 @@
 
 ### 环境配置
 - 下载好预训练checkpoint: [gemma.ckpt](https://www.kaggle.com/models/google/gemma/frameworks/pyTorch)
-- 准备一台有足够卡的服务器，笔者的配置是一台租用的8000服务器，cuda版本最好够新
+- 准备一台有足够卡的服务器，我的配置是一台租用的8000服务器，cuda版本最好够新
+- 推荐使用前配置好clash
 - 安装本仓库的配置文件，会自动配置好依赖：python setup.py install
 - 准备好长文本数据集
 
@@ -14,6 +15,7 @@
     - 替换output-path为你的模型checkpoint保存地址
     - 替换ckpt-path为你的预训练模型地址
 - 根据你的训练需求编辑options中的设置
+
 ```bash
 #! /bin/bash
 base_options="--data-path /workspace/longtext-2k-clean.jsonl \
@@ -21,7 +23,6 @@ base_options="--data-path /workspace/longtext-2k-clean.jsonl \
 --output-path /workspace/gemma/output \
 --ckpt-path /workspace/gemma-2b-it.ckpt
 "
-
 options="$base_options \
     --experiment-name train_pi_test \
     --show-loss-step 1 \
@@ -58,7 +59,7 @@ set +x
 - 新增支持activation checkpoint
 - 新增支持自定义optimizer
 - 新增支持sat库中的lr scheduler
-- 新增支持lora+
+- 新增支持lora+ （给lora的两个参数矩阵A,B赋予不同的学习率，可以带来更好的性能表现，更快的收敛速度）
 - 2024-03-20 新增支持[galore](https://github.com/jiaweizzhao/GaLore)(代码还未完全测试)
 - 2024-03-21 新增支持torch的flash-attention实现
 
@@ -74,4 +75,12 @@ set +x
 感谢以下仓库的开源代码和模型权重：
 - [sat](https://github.com/THUDM/SwissArmyTransformer)
 - [gemma](https://github.com/google/gemma_pytorch)
-- 以及其他我参考借鉴的参数
+- [loraplus](https://github.com/nikhil-ghosh-berkeley/loraplus)
+- [chatglm-finetuning](https://github.com/liucongg/ChatGLM-Finetuning)
+- 以及其他我参考借鉴的仓库
+
+### 联系
+
+欢迎使用以下方式联系我：
+- 邮箱：hnhe@mail.ustc.edu.cn
+- qq: 895228612

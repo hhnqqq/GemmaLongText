@@ -59,7 +59,7 @@ set +x
 - 新增支持自定义optimizer
 - 新增支持sat库中的lr scheduler
 - 新增支持lora+
-- 2024-03-20 新增支持(galore)[https://github.com/jiaweizzhao/GaLore](代码还未完全测试)
+- 2024-03-20 新增支持[galore](https://github.com/jiaweizzhao/GaLore)(代码还未完全测试)
 - 2024-03-21 新增支持torch的flash-attention实现
 
 ### TODO
@@ -72,6 +72,6 @@ set +x
 ### 感谢
 
 感谢以下仓库的开源代码和模型权重：
-- (sat)[https://github.com/THUDM/SwissArmyTransformer]
-- (gemma)[https://github.com/google/gemma_pytorch]
+- [sat](https://github.com/THUDM/SwissArmyTransformer)
+- [gemma](https://github.com/google/gemma_pytorch)
 - 以及其他我参考借鉴的参数

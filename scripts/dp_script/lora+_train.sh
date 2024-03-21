@@ -11,7 +11,7 @@ options="$base_options \
     --epochs 3 \
     --batch-size-per-gpu 1 \
     --fp16 \
-    --gradient-accumulation-steps 2 \
+    --gradient-accumulation-steps 1 \
     --warmup 0.02 \
     --device cuda \
     --max-len 2048 \

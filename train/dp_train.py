@@ -182,12 +182,12 @@ with Timer() as timer:
                             model.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-{step}')
                     model.train()
 
-        if ds_config["zero_optimization"]["stage"] == 3:
-            state_dict = model._zero3_consolidated_16bit_state_dict()
-            if args.global_rank <= 0:
-                model.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-{step}')
-        else:
-            if args.global_rank <= 0:
-                model.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-{step}')
+    if ds_config["zero_optimization"]["stage"] == 3:
+        state_dict = model._zero3_consolidated_16bit_state_dict()
+        if args.global_rank <= 0:
+            model.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-final')
+    else:
+        if args.global_rank <= 0:
+            model.save_checkpoint(args.output_path, tag=f'{args.experiment_name}-final')
 
 print_rank_0(f"--->total time cosumed is {timer.time_cost}", args.global_rank)

@@ -17,7 +17,7 @@ import torch
 from torch.optim.lr_scheduler import _LRScheduler
 import math
 
-from gemma.utils import print_rank_0
+from utils import print_rank_0
 from copy import deepcopy
 
 
@@ -27,6 +27,15 @@ class AnnealingLR(_LRScheduler):
     DECAY_STYLES = ['linear', 'cosine', 'exponential', 'constant', 'None']
 
     def __init__(self, optimizer, start_lr, warmup_iter, num_iters, decay_style=None, last_iter=-1, decay_ratio=0.5, auto_warmup_steps=50, auto_warmup_rate=0.05):
+        """
+        params start_lr: base learning rate for the scheduler
+        params num_iters: total steps
+        params warmup_iter: how much iters to use warmup
+        params last_iters: how much iters already trained
+        params auto_warmup_steps: the fix warmup step
+        params auto_warmup_rate: the lr radio for fix warmup step
+        params decay_style: learning rate decay style after warmup
+        """
         assert warmup_iter <= num_iters
         self.optimizer = optimizer
         self.lr_scale = deepcopy([x['lr'] if 'lr' in x else 1. for x in optimizer.param_groups])
@@ -44,14 +53,17 @@ class AnnealingLR(_LRScheduler):
             print_rank_0(f'--->learning rate decaying style {self.decay_style}, ratio {self.decay_ratio}')
 
     def get_lr(self):
+        # auto_warmup_steps并不取决于warmup的设置，而是固定的进行warmup
         if self.num_iters <= self.init_step + self.auto_warmup_steps:
             auto_lr = float(self.start_lr) * self.auto_warmup_rate
             scheduled_lr = float(self.start_lr) * self.num_iters / self.warmup_iter
             return min(auto_lr, scheduled_lr)
         
+        # 根据warmup设置进行warmup
         if self.warmup_iter > 0 and self.num_iters <= self.warmup_iter:
             return float(self.start_lr) * self.num_iters / self.warmup_iter
         else:
+            # 进行learning rate decay
             if self.decay_style == self.DECAY_STYLES[0]:
                 return self.start_lr*((self.end_iter-(self.num_iters-self.warmup_iter))/self.end_iter)
             elif self.decay_style == self.DECAY_STYLES[1]:

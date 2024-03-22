@@ -112,6 +112,8 @@ def train_parser(parser):
                        help='rope theta')
     group.add_argument('--train-pi', type=int, default=None,
                        help='In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
+    group.add_argument('--flash-atten', action='store_true',
+                       help='weather to flash attention')
 
     return parser
 

@@ -23,12 +23,13 @@ from gemma.utils.params_manager import (
 )
 
 class TrainModel(torch.nn.Module):
-    def __init__(self, model:GemmaForCausalLM, args):
+    def __init__(self, model:GemmaForCausalLM, args, pad_id):
         super().__init__()
         self.args = args
         self.model = model.model
         self.embedder = model.embedder
         self.emb_weight = model.embedder.weight
+        self.loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_id)
     
     def forward(self, input_ids, labels):
         hidden_states = F.embedding(input_ids, self.emb_weight)
@@ -42,8 +43,7 @@ class TrainModel(torch.nn.Module):
         logits = torch.matmul(logits, self.emb_weight.t().to(hidden_states.device).to(hidden_states.dtype))
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
-        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
-        loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
+        loss = self.loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
         return loss
 
 def switch_to_lora(model, replace_names, rank=4, lora_scaler=32):
@@ -89,10 +89,11 @@ set_random_seed(args.seed)
 
 # load model and dataset
 print_rank_0('--->loading the model', args.global_rank)
+tokenizer = Tokenizer(args.tokenizer_path)
 model = GemmaForCausalLM(model_config)
 if args.ckpt_path is not None:
     model.load_weights(args.ckpt_path)
-model = TrainModel(model, args)
+model = TrainModel(model, args, tokenizer.pad_id)
 if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
         args.replace_modules = ['qkv_proj']
@@ -109,7 +110,6 @@ if args.fp16:
 elif args.bf16:
     model.to(device).bfloat16()
 
-tokenizer = Tokenizer(args.tokenizer_path)
 train_dataset = LongRopeDataset(args.data_path, tokenizer, args.max_len, args.max_src_len, args.read_nums)
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)

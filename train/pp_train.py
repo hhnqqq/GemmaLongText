@@ -102,15 +102,15 @@ class SamplerPipelineLayer(torch.nn.Module):
         return logits, labels
 
 class LossPipelineLayer(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, pad_id):
         super().__init__()
+        self.loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_id)
 
     def forward(self, inputs):
         logits, labels = inputs
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
-        loss_fct = torch.nn.CrossEntropyLoss(ignore_index=tokenizer.pad_id)
-        loss = loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
+        loss = self.loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
         return loss
 
 def set_random_seed(seed):
@@ -132,7 +132,7 @@ def get_model(model, args):
                 range(args.num_layers)],
               LayerSpec(FNormPipelineLayer, model=model),
             #   TiedLayerSpec("embedder", SamplerPipelineLayer, model=model),
-              LayerSpec(LossPipelineLayer)]
+              LayerSpec(LossPipelineLayer, pad_id=args.pad_id)]
     return layers
 
 def data_collator(examples):
@@ -181,6 +181,7 @@ args.global_rank = torch.distributed.get_rank()
 set_random_seed(args.seed)
 
 # load model and dataset
+tokenizer = Tokenizer(args.tokenizer_path)
 model_config = get_model_config(args.variant)
 print_rank_0('--->loading the model', args.global_rank)
 model = GemmaForCausalLM(model_config)
@@ -189,6 +190,7 @@ if args.ckpt_path is not None:
 args.head_dim = model_config.head_dim
 args.hidden_size = model_config.hidden_size
 args.num_layers = model_config.num_hidden_layers
+args.pad_id = tokenizer.pad_id
 
 model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_stages, partition_method='uniform')
 if args.use_lora or args.use_lora_plus:
@@ -207,7 +209,6 @@ if args.fp16:
 elif args.bf16:
     model_pipe.to(device).bfloat16()
 
-tokenizer = Tokenizer(args.tokenizer_path)
 train_dataset = LongRopeDataset(args.data_path, tokenizer, args.max_len, args.max_src_len, args.read_nums)
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)

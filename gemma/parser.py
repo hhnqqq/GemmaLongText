@@ -48,6 +48,10 @@ def train_parser(parser):
                        help='maxium learning rate of warmup')
     group.add_argument('--gradient-accumulation-steps', type=int, default=1, 
                        help='run optimizer after every gradient-accumulation-steps backwards.')
+    group.add_argument('--auto-warmup-steps', type=int, default=10,
+                       help='the fix warmup steps for training')
+    group.add_argument('--auto-warmup-rate', type=float, default=0.05,
+                       help='the warmup rate for fix warmup steps')
     group.add_argument('--warmup', type=float, default=0.01,
                        help='percentage of data to warmup on (.01 = 1% of all '
                             'training iters). Default 0.01')
@@ -98,6 +102,7 @@ def train_parser(parser):
                        help='the rank of galore')
     group.add_argument('--galore-scaler', type=float, default=0.25,
                        help='the scaler of galore')
+    group.add_argument('--galore-per-layer', action='store_true')
 
     # -------------------------- others ----------------------------
     group.add_argument('--seed', type=int, default=None,
@@ -107,8 +112,6 @@ def train_parser(parser):
                        help='rope theta')
     group.add_argument('--train-pi', type=int, default=None,
                        help='In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
-    group.add_argument('--flash-atten', action='store_true',
-                       help='weather to flash attention')
 
     return parser
 

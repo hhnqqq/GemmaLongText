@@ -1,7 +1,7 @@
 import warnings
 import torch.optim as optim
-from utils import print_rank_0
-from utils.scheduler import AnnealingLR
+from gemma.utils import print_rank_0
+from gemma.utils.scheduler import AnnealingLR
 from transformers.utils.versions import require_version
 
 def get_optimizer(ds_config, args, model):

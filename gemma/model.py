@@ -138,6 +138,7 @@ class Linear(nn.Module):
 class LinearWithLoRA(Linear):
     def __init__(self, rank, lora_scaler, in_features: int, out_features: int, quant: bool):
         self.lora_scaler = torch.tensor(lora_scaler/rank)
+        self.original_forward = self.forward
         super().__init__(in_features, out_features, quant)
         if self.quant:
             self.weight_a = nn.Parameter(
@@ -153,7 +154,8 @@ class LinearWithLoRA(Linear):
         else:
             self.weight_a = nn.Parameter(torch.empty((rank, self.in_features)))
             self.weight_b = nn.Parameter(torch.zeros((self.out_features, rank)))
-        nn.init.uniform_(self.weight_a, a=0.0, b=1.0)
+            std = (1/self.in_features)**0.5
+        nn.init.normal_(self.weight_a, mean=0, std=std)
     
     def forward(self, x):
         if self.quant:
@@ -168,6 +170,15 @@ class LinearWithLoRA(Linear):
         weight = weight + lora_weight
         output = F.linear(x, weight)
         return output
+    
+    def merge(self):
+        lora_weight = torch.matmul(self.weight_b.weight, self.weight_a.weight)
+        self.weight = nn.parameter(self.weight + lora_weight)
+        if hasattr(self, 'weight_a'):
+            delattr(self, 'weight_a')
+        if hasattr(self, 'weight_b'):
+            delattr(self, 'weight_b')
+        self.forward = self.original_forward
 
 class Embedding(nn.Module):
 

@@ -57,7 +57,7 @@ def train_parser(parser):
                             'training iters). Default 0.01')
     group.add_argument('--weight-decay', type=float, default=5e-4,
                        help='weight decay coefficient for L2 regularization')
-    group.add_argument('--lr-decay-style', type=str, default='linear',
+    group.add_argument('--lr-decay-style', type=str, default='cosine',
                        choices=['constant', 'linear', 'cosine', 'exponential'],
                        help='learning rate decay function')
     group.add_argument('--lr-decay-ratio', type=float, default=0.1)

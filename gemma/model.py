@@ -138,7 +138,6 @@ class Linear(nn.Module):
 class LinearWithLoRA(Linear):
     def __init__(self, rank, lora_scaler, in_features: int, out_features: int, quant: bool):
         self.lora_scaler = torch.tensor(lora_scaler/rank)
-        self.original_forward = self.forward
         super().__init__(in_features, out_features, quant)
         if self.quant:
             self.weight_a = nn.Parameter(
@@ -165,20 +164,33 @@ class LinearWithLoRA(Linear):
         else:
             weight = self.weight
             weight_a, weight_b = self.weight_a, self.weight_b
-
-        lora_weight = torch.matmul(weight_b, weight_a)
-        weight = weight + lora_weight
+        if hasattr(self, 'weight_a') and hasattr(self, 'weight_b'):
+            lora_weight = torch.matmul(weight_b, weight_a)
+            weight = weight + lora_weight
         output = F.linear(x, weight)
         return output
     
-    def merge(self):
-        lora_weight = torch.matmul(self.weight_b.weight, self.weight_a.weight)
-        self.weight = nn.parameter(self.weight + lora_weight)
-        if hasattr(self, 'weight_a'):
+    def _merge(self):
+        if hasattr(self, 'weight_a') and hasattr(self, 'weight_b'):
+            lora_weight = torch.matmul(self.weight_b, self.weight_a)
+            self.weight = nn.Parameter(self.weight + lora_weight)
+            return True
+        return False
+
+    def merge_and_del(self):
+        if self._merge():
             delattr(self, 'weight_a')
-        if hasattr(self, 'weight_b'):
             delattr(self, 'weight_b')
-        self.forward = self.original_forward
+
+    def merge_and_reset(self):
+        if self._merge():
+            nn.init.normal_(self.weight_a, mean=0, std=(1/self.in_features)**0.5)
+            nn.init.zeros_(self.weight_b)
+
+    def print_details(self):
+        print(f"LinearWithLoRA Layer: in_features={self.in_features}, out_features={self.out_features}")
+        print(f"LoRA Rank: {self.weight_a.shape[0]}, Quantized: {self.quant}")
+        
 
 class Embedding(nn.Module):
 

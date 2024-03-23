@@ -197,7 +197,10 @@ if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
         args.replace_modules = ['qkv_proj']
     switch_to_lora(model_pipe, args.replace_modules, rank=4)
-    enable_trainable_params(model_pipe, ['weight_a','weight_b'])
+    if args.lora_fa:
+        enable_trainable_params(model_pipe, ['weight_b'])
+    else:
+        enable_trainable_params(model_pipe, ['weight_a','weight_b'])
 elif args.disable_list is not None:
     disable_untrainable_params(model_pipe, args.disable_list)
 elif args.enable_list is not None:

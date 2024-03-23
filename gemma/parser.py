@@ -88,6 +88,8 @@ def train_parser(parser):
                        help='weather to use lora')
     group.add_argument('--use-lora-plus', action='store_true',
                        help='weather to use lora+')
+    group.add_argument('--lora-fa', action='store_true',
+                       help='weather to use lora fa')
     group.add_argument('--lora-rank', type=int, default=8,
                        help='the rank of lora')
     group.add_argument('--lora-plus-scaler', type=int, default=16,

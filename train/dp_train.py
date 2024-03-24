@@ -39,8 +39,13 @@ class TrainModel(torch.nn.Module):
                                          input_ids.shape[1],
                                          theta=args.rope_theta,
                                          train_pi=args.train_pi).to(hidden_states.device)
-        attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device)
-        logits = self.model(hidden_states=hidden_states, freqs_cis=freqs_cis, mask=attention_mask, atten_type=self.args.atten_type)
+        attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device, dtype=hidden_states.dtype)
+        freqs_cis.requires_grad_(True)
+        attention_mask.requires_grad_(True)
+        if self.args.activation_checkpoint:
+            logits = checkpoint(self.model, hidden_states, freqs_cis, attention_mask, self.args.atten_type)
+        else:
+            logits = self.model(hidden_states=hidden_states, freqs_cis=freqs_cis, mask=attention_mask, atten_type=self.args.atten_type)
         logits = torch.matmul(logits, self.emb_weight.t().to(hidden_states.device).to(hidden_states.dtype))
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
@@ -114,7 +119,6 @@ elif args.disable_list is not None:
     disable_untrainable_params(model, args.disable_list)
 elif args.enable_list is not None:
     enable_trainable_params(model, args.enable_list)
-print_trainable_module_names(model)
 
 if args.fp16:
     model.to(device).half()
@@ -148,20 +152,18 @@ print_rank_0("--->NUMBER OF WARMUP STEPS: args.num_warmup_steps = {}".format(arg
 
 optimizer, lr_scheduler = get_optimizer(ds_config, args, model=model)
 model, optimizer, _, lr_scheduler = deepspeed.initialize(model=model, 
-                                                         args=args, 
                                                          optimizer=optimizer,
                                                          lr_scheduler=lr_scheduler,
                                                          config=ds_config,
-                                                         dist_init_required=True)
-model.train()
+                                                         model_parameters=[p for p in model.parameters() if p.requires_grad])
+print_trainable_module_names(model)
 tr_loss, min_loss = 0.0, 0.0
 global_step = 0
 # train
 ensure_directory_exists(args.output_path)
 with Timer() as timer:
     for epoch in range(args.epochs):
-        print_rank_0(f"--->Beginning of Epoch {epoch + 1}/{args.epochs}, Total Micro Batches {train_dataloader}" ,args.global_rank)
-        model.train()
+        print_rank_0(f"--->Beginning of Epoch {epoch + 1}/{args.epochs}, Total Micro Batches {len(train_dataloader)}" ,args.global_rank)
         
         for step, batch in enumerate(train_dataloader):
             timer.average_time(entry='start')

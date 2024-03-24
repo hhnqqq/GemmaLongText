@@ -110,8 +110,8 @@ def set_random_seed(seed):
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-def get_masks(seq_len, device):
+def get_masks(seq_len, device, dtype):
     attention_mask = torch.full((1, 1, seq_len, seq_len),
                 -2.3819763e38).to(torch.float)
-    attention_mask = torch.triu(attention_mask, diagonal=1).to(device)
+    attention_mask = torch.triu(attention_mask, diagonal=1).to(device).to(dtype)
     return attention_mask

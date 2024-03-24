@@ -305,9 +305,9 @@ class GemmaAttention(nn.Module):
         hidden_states: torch.Tensor,
         freqs_cis: torch.Tensor,
         mask: torch.Tensor,
+        atten_type: Union[str, None] = None ,
         kv_write_indices: Union[torch.Tensor,None]=None,
-        kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,
-        atten_type: Union[str, None] = None            
+        kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,      
         ) -> torch.Tensor:
         hidden_states_shape = hidden_states.shape
         if len(hidden_states_shape) == 2:
@@ -357,11 +357,11 @@ class GemmaAttention(nn.Module):
 
         if atten_type == 'flash_atten':
             require_version("torch>=2.0.0")
-            with torch.backends.cuda.enable_flash_sdp(enabled=True):
+            with torch.backends.cuda.sdp_kernel(enable_flash=True):
                 output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
         elif atten_type == 'ulysses_atten':
             require_version("torch>=2.0.0")
-            with torch.backends.cuda.enable_flash_sdp(enabled=True):
+            with torch.backends.cuda.sdp_kernel(enable_flash=True):
                 # TODO
                 pass
         else:
@@ -407,9 +407,9 @@ class GemmaDecoderLayer(nn.Module):
         hidden_states: torch.Tensor,
         freqs_cis: torch.Tensor,
         mask: torch.Tensor,
+        atten_type: Union[str, None] = None,
         kv_write_indices: Union[torch.Tensor,None]=None,
         kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,
-        atten_type: Union[str, None] = None  
     ) -> torch.Tensor:
         # Self Attention
         residual = hidden_states
@@ -450,9 +450,9 @@ class GemmaModel(nn.Module):
         hidden_states: torch.Tensor,
         freqs_cis: torch.Tensor,
         mask: torch.Tensor,
+        atten_type: Union[str, None] = None,
         kv_write_indices: Union[torch.Tensor, None]=None,
         kv_caches: Union[List[Tuple[torch.Tensor, torch.Tensor]],None]=None,
-        atten_type: Union[str, None] = None
     ) -> torch.Tensor:
         for i in range(len(self.layers)):
             layer = self.layers[i]

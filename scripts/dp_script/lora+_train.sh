@@ -25,9 +25,9 @@ options="$base_options \
     --warmup-min-lr 1e-6 \
     --warmup-max-lr 2e-5 \
     --use-lora-plus \
-    --activation-checkpoint \
     --diy-optimizer \
     --atten-type flash_atten \
+    --activation-checkpoint \
     "
     
 run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /workspace/gemma_long_rope/train/dp_train.py ${options}"

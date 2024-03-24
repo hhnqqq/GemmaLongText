@@ -114,8 +114,8 @@ def train_parser(parser):
                        help='rope theta')
     group.add_argument('--train-pi', type=int, default=None,
                        help='In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
-    group.add_argument('--flash-atten', action='store_true',
-                       help='weather to flash attention')
+    group.add_argument('--atten-type', type=str, default=None,
+                       help='type of attention')
 
     return parser
 
@@ -133,8 +133,10 @@ def ds_parser(parser):
     group.add_argument("--offload-param", action='store_true')
     group.add_argument("--csv-monitor", action='store_true')
     group.add_argument("--monitor-file-path", type=str)
-    group.add_argument('--num-stages', type=int, default=None,
+    group.add_argument('--num-pp-stages', type=int, default=None,
                        help='the pipeline stages, this value must be divisible by your GPU num')
+    group.add_argument('--num-sp-stages', type=int, default=None,
+                       help='the sequence parallel stages, this value must be divisible by your GPU num')
 
     # Include DeepSpeed configuration arguments
     parser = deepspeed.add_config_arguments(parser)

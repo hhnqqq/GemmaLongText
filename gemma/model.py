@@ -19,6 +19,7 @@ from torch import nn
 import torch.nn.functional as F
 from typing import Any, List, Optional, Sequence, Tuple, Union
 from transformers.utils.versions import require_version
+from deepspeed.sequence.layer import DistributedAttention
 
 from gemma import config as gemma_config
 from gemma import tokenizer
@@ -306,7 +307,7 @@ class GemmaAttention(nn.Module):
         mask: torch.Tensor,
         kv_write_indices: Union[torch.Tensor,None]=None,
         kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,
-        flash_atten: bool = False            
+        atten_type: Union[str, None] = None            
         ) -> torch.Tensor:
         hidden_states_shape = hidden_states.shape
         if len(hidden_states_shape) == 2:
@@ -354,10 +355,15 @@ class GemmaAttention(nn.Module):
         k = key.transpose(1, 2)
         v = value.transpose(1, 2)
 
-        if flash_atten:
+        if atten_type == 'flash_atten':
             require_version("torch>=2.0.0")
             with torch.backends.cuda.enable_flash_sdp(enabled=True):
                 output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+        elif atten_type == 'ulysses_atten':
+            require_version("torch>=2.0.0")
+            with torch.backends.cuda.enable_flash_sdp(enabled=True):
+                # TODO
+                pass
         else:
             # [batch_size, n_local_heads, input_len, max_seq_len]
             scores = torch.matmul(q, k.transpose(2, 3)) * self.scaling
@@ -403,7 +409,7 @@ class GemmaDecoderLayer(nn.Module):
         mask: torch.Tensor,
         kv_write_indices: Union[torch.Tensor,None]=None,
         kv_cache: Union[Tuple[torch.Tensor, torch.Tensor],None]=None,
-        flash_atten: bool = False
+        atten_type: Union[str, None] = None  
     ) -> torch.Tensor:
         # Self Attention
         residual = hidden_states
@@ -414,7 +420,7 @@ class GemmaDecoderLayer(nn.Module):
             kv_write_indices=kv_write_indices,
             kv_cache=kv_cache,
             mask=mask,
-            flash_atten=flash_atten,
+            atten_type=atten_type,
         )
         hidden_states = residual + hidden_states
 
@@ -446,6 +452,7 @@ class GemmaModel(nn.Module):
         mask: torch.Tensor,
         kv_write_indices: Union[torch.Tensor, None]=None,
         kv_caches: Union[List[Tuple[torch.Tensor, torch.Tensor]],None]=None,
+        atten_type: Union[str, None] = None
     ) -> torch.Tensor:
         for i in range(len(self.layers)):
             layer = self.layers[i]
@@ -455,6 +462,7 @@ class GemmaModel(nn.Module):
                 kv_write_indices=kv_write_indices,
                 kv_cache=kv_caches[i] if kv_caches is not None else None,
                 mask=mask,
+                atten_type=atten_type
             )
         hidden_states = self.norm(hidden_states)
         return hidden_states

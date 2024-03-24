@@ -16,12 +16,12 @@ options="$base_options \
     --gradient-accumulation-steps 2 \
     --warmup 0.02 \
     --device cuda \
-    --num-stages 1 \
-    --max-len 1024 \
-    --max-src-len 512 \
+    --num-pp-stages 4 \
+    --max-len 16384 \
+    --max-src-len 16000 \
     --seed 42 \
     --read-nums 100 \
-    --ds-config-path /workspace/gemma_long_rope/gemma/ds_config/pineline.json \
+    --ds-config-path /workspace/gemma_long_rope/gemma/ds_config/pipeline.json \
     --variant 2b \
     --train-pi 2 \
     --lr 1e-5 \
@@ -31,6 +31,7 @@ options="$base_options \
     --use-galore \
     --optim-type galore_adamw8bit \
     --activation-checkpoint \
+    --atten-type flash_atten \
     --disable-list \
     "
 
@@ -38,7 +39,7 @@ for item in "${disable_list[@]}"; do
     options+=" \"$item\""
 done
 
-run_cmd="deepspeed --include localhost:0 --master_port 16666 /workspace/gemma_long_rope/train/pp_train.py ${options}"
+run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /workspace/gemma_long_rope/train/pp_train.py ${options}"
 echo ${run_cmd}
 eval ${run_cmd}
 

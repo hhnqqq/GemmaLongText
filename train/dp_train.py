@@ -4,6 +4,7 @@ import deepspeed
 import numpy as np
 import torch.nn.functional as F
 
+import torch.distributed as dist
 from torch.utils.checkpoint import checkpoint
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
@@ -39,7 +40,7 @@ class TrainModel(torch.nn.Module):
                                          theta=args.rope_theta,
                                          train_pi=args.train_pi).to(hidden_states.device)
         attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device)
-        logits = self.model(hidden_states=hidden_states, freqs_cis=freqs_cis, mask=attention_mask)
+        logits = self.model(hidden_states=hidden_states, freqs_cis=freqs_cis, mask=attention_mask, atten_type=self.args.atten_type)
         logits = torch.matmul(logits, self.emb_weight.t().to(hidden_states.device).to(hidden_states.dtype))
         shift_logits = logits[..., :-1, :].contiguous()
         shift_labels = labels[..., 1:].contiguous()
@@ -70,6 +71,10 @@ def get_parent_model(parent_model, module):
             return parent
     return None
 
+def init_sequence_parallel_group(args):
+    # TODO
+    pass
+
 # load args
 args = ds_parser(train_parser(base_parser())).parse_args()
 model_config = get_model_config(args.variant)
@@ -83,8 +88,11 @@ else:
     torch.cuda.set_device(args.local_rank)
     device = torch.device("cuda", args.local_rank)
     deepspeed.init_distributed(dist_backend="nccl")
-args.gpu_count = torch.cuda.device_count()
-args.global_rank = torch.distributed.get_rank()
+    args.gpu_count = torch.cuda.device_count()
+    args.global_rank = dist.get_rank()
+if args.num_sp_stages is not None:
+    assert args.atten_type == 'ulysses_atten', 'when using sequence parallism, the attention type must be `ulysses_atten`'
+    # TODO
 set_random_seed(args.seed)
 
 # load model and dataset

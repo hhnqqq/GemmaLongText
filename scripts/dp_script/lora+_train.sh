@@ -14,8 +14,8 @@ options="$base_options \
     --gradient-accumulation-steps 1 \
     --warmup 0.02 \
     --device cuda \
-    --max-len 2048 \
-    --max-src-len 1024 \
+    --max-len 16384 \
+    --max-src-len 16000 \
     --seed 42 \
     --read-nums 100 \
     --ds-config-path /workspace/gemma_long_rope/gemma/ds_config/stage2.json \
@@ -27,7 +27,7 @@ options="$base_options \
     --use-lora-plus \
     --activation-checkpoint \
     --diy-optimizer \
-    --flash-atten \
+    --atten-type flash_atten \
     "
     
 run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /workspace/gemma_long_rope/train/dp_train.py ${options}"

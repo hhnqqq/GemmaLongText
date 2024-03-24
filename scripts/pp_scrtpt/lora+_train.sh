@@ -14,12 +14,12 @@ options="$base_options \
     --gradient-accumulation-steps 2 \
     --warmup 0.02 \
     --device cuda \
-    --num-stages 1 \
+    --num-pp-stages 4 \
     --max-len 16384 \
     --max-src-len 16000 \
     --seed 42 \
-    --read-nums 1500 \
-    --ds-config-path /workspace/gemma_long_rope/gemma/ds_config/pineline.json \
+    --read-nums 100 \
+    --ds-config-path /workspace/gemma_long_rope/gemma/ds_config/pipeline.json \
     --variant 2b \
     --train-pi 2 \
     --lr 1e-5 \
@@ -28,7 +28,7 @@ options="$base_options \
     --use-lora-plus \
     --activation-checkpoint \
     --diy-optimizer \
-    --flash-atten \
+    --atten-type flash_atten \
     "
     
 run_cmd="deepspeed --include localhost:0,1,2,3 --master_port 16666 /workspace/gemma_long_rope/train/pp_train.py ${options}"

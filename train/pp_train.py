@@ -71,9 +71,9 @@ class DecoderPipelineLayer(torch.nn.Module):
         hidden_states, freqs_cis, attention_mask, labels = inputs
         # [batch_size, input_len, hidden_dim]
         if self.args.activation_checkpoint:
-            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask, args.flash_atten)
+            hidden_states = checkpoint(self.layer, hidden_states, freqs_cis, attention_mask, args.atten_type)
         else:
-            hidden_states = self.layer(hidden_states, freqs_cis, attention_mask)
+            hidden_states = self.layer(hidden_states, freqs_cis, attention_mask, args.atten_type)
         return hidden_states, freqs_cis, attention_mask, labels
     
 class FNormPipelineLayer(torch.nn.Module):
@@ -192,7 +192,7 @@ args.hidden_size = model_config.hidden_size
 args.num_layers = model_config.num_hidden_layers
 args.pad_id = tokenizer.pad_id
 
-model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_stages, partition_method='uniform')
+model_pipe = PipelineModule(layers=get_model(model, args), num_stages=args.num_pp_stages, partition_method='uniform')
 if args.use_lora or args.use_lora_plus:
     if args.replace_modules is None:
         args.replace_modules = ['qkv_proj']

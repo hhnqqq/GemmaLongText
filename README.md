@@ -1,21 +1,22 @@
-# 使用deepspeed构建一个支持长文本的gemma-2b/7b
+# Building a Long Text Supported Model with Deepspeed for GEMMA
 
-### 环境配置
-- 下载好预训练checkpoint: [gemma.ckpt](https://www.kaggle.com/models/google/gemma/frameworks/pyTorch)
-- 准备一台有足够卡的服务器，我的配置是一台租用的8000服务器，cuda版本最好够新
-- 推荐使用前配置好clash
-- 安装本仓库的配置文件，会自动配置好依赖：python setup.py install
-- 准备好长文本数据集
+[中文](https://github.com/hhnqqq/GemmaLongText/blob/main/README_ZH.md)
+
+### Environment Setup
+- Download the pre-trained checkpoint: [gemma.ckpt](https://www.kaggle.com/models/google/gemma/frameworks/pyTorch)
+- Prepare a server with sufficient GPU power, my setup is an 8000 server, with preferably a new CUDA version
+- Install the configuration files of this repository, dependencies will be automatically configured: python setup.py install
+- Prepare a dataset with long text
 
 ### 使用方法
-- 选择使用的微调方法，lora/lora+/galore/全量
-- 选择你使用的并行训练方法：pp/dp
-- 根据本地条件编辑对应的脚本，如使用lora和pp时时编辑/scripts/pp_scrtpt/lora_train.sh
-- 首先需要编辑base options中的设置
-    - 替换data-path为你的数据集地址，数据集要求为jsonl格式，包含input、output两个键
-    - 替换output-path为你的模型checkpoint保存地址
-    - 替换ckpt-path为你的预训练模型地址
-- 根据你的训练需求编辑options中的设置
+- Choose the fine-tuning method to use, lora/lora+/galore/full
+- Choose the parallel training method to use: pp/dp
+- Customize the corresponding script based on your local conditions, for example, when using lora and pp, edit /scripts/pp_scrtpt/lora_train.sh
+- Start by editing the settings in base options
+    - Replace data-path with your dataset address, the dataset should be in jsonl format, containing input and output keys
+    - Replace output-path with the save location of your model checkpoint
+    - Replace ckpt-path with the address of your pre-trained model
+- Edit the settings in options based on your training requirements
 
 ```bash
 #! /bin/bash
@@ -56,35 +57,37 @@ eval ${run_cmd}
 
 set +x
 ```
-### 新增特性支持
-- 新增支持activation checkpoint
-- 新增支持自定义optimizer
-- 新增支持sat库中的lr scheduler
-- 新增支持lora+ （给lora的两个参数矩阵A,B赋予不同的学习率，可以带来更好的性能表现，更快的收敛速度）
-- 2024-03-20 新增支持[galore](https://github.com/jiaweizzhao/GaLore)(使用会出现梯度维度问题，待修改)
-- 2024-03-21 新增支持torch的flash-attention实现
-- 2024-03-21 新增支持纯dp训练
-- 2024-03-23 新增支持lora-fa
+### NEWS
+- Added support for activation checkpoint
+- Added support for custom optimizer
+- Added support for lr scheduler from sat library
+- Added support for lora+ (applying different learning rates to matrix A and B of lora can lead to better performance and faster convergence)
+- 2024-03-20 Added support for galore(issues with gradient dimensions, to be modified)
+- 2024-03-21 Added support for torch's flash-attention implementation
+- 2024-03-21 Added support for pure dp training
+- 2024-03-23 Added support for lora-fa
+- <b>2024-04-01 Added support for deepspeed-ulysses, now able to train longer models!!</b>
 
 ### TODO
-- 支持更多的lora版本如dora
-- 支持更多的长度外推方法
-- 支持更多的memory efficient方法
-- 以及更多的先进技术
-- 完善scheduler的代码
-- 加入对sequence parallel的支持
+- Support more lora versions like dora
+- Support more length extrapolation methods
+- Support more memory-efficient methods
+- And more advanced technologies
+- Enhance the scheduler code
+- Add support for ring-attention
 
-### 感谢
+### Acknowledgements
 
-感谢以下仓库的开源代码和模型权重：
+Thanks to the open-source code and model weights from the following repositories:
 - [sat](https://github.com/THUDM/SwissArmyTransformer)
 - [gemma](https://github.com/google/gemma_pytorch)
 - [loraplus](https://github.com/nikhil-ghosh-berkeley/loraplus)
 - [chatglm-finetuning](https://github.com/liucongg/ChatGLM-Finetuning)
-- 以及其他我参考借鉴的仓库
+- And other repositories I referenced and borrowed from
 
 ### 联系
 
-欢迎使用以下方式联系我：
-- 邮箱：hnhe@mail.ustc.edu.cn
-- qq: 895228612
+Feel free to contact me via:
+- e-mail：hnhe@mail.ustc.edu.cn
+
+

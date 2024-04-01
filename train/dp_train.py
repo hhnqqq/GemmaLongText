@@ -38,9 +38,9 @@ class TrainModel(torch.nn.Module):
                                          train_pi=args.train_pi)
     
     def forward(self, input_ids, labels):
+        seq_parallel_world_size = parallel_states.get_sequence_parallel_world_size()
+        seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
         if args.num_sp_stages is not None:
-            seq_parallel_world_size = parallel_states.get_sequence_parallel_world_size()
-            seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
             assert args.max_len % seq_parallel_world_size == 0
             seq_len_per_group = args.max_len // seq_parallel_world_size
             local_seq_start = seq_parallel_world_rank * seq_len_per_group
@@ -136,11 +136,12 @@ if args.fp16:
 elif args.bf16:
     model.to(device).bfloat16()
 
-train_dataset = LongRopeDataset(args.data_path, tokenizer, args.max_len, args.max_src_len, args.read_nums)
+train_dataset = LongRopeDataset(args.data_path, tokenizer, args.max_len, args.max_src_len, args.mode, args.read_nums)
 ds_config = read_config(args.ds_config_path, encoding=None)
 ds_config = refresh_config(ds_config, args)
 
-if args.local_rank == -1:
+# TODO: 这里的处理还有明显的问题，需要修改
+if args.local_rank == -1 or args.num_sp_stages is not None:
     train_sampler = RandomSampler(train_dataset)
 else:
     train_sampler = DistributedSampler(train_dataset)
@@ -150,6 +151,7 @@ train_dataloader = DataLoader(train_dataset, collate_fn=data_collator, sampler=t
 
 assert args.train_iters is not None or args.epochs is not None, 'train_iters and epochs can not be None at the same time'
 if args.epochs is not None:
+    # TODO: 修正sp与dp时的不同
     args.num_update_steps = args.epochs * (math.ceil(len(train_dataloader) / (args.gradient_accumulation_steps)))
 else:
     args.num_update_steps = args.train_iters/args.gradient_accumulation_steps

@@ -30,6 +30,8 @@ def train_parser(parser):
                        help='number of iterations between saves')
     group.add_argument('--device', type=str, default='cpu',
                        help='the device to load the model')
+    group.add_argument('--mode', type=str, default='pretrain',
+                       help='training mode')
     
     # --------------------- optimizer -----------------------
     group.add_argument('--diy-optimizer', action='store_true',

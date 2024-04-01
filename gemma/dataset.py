@@ -7,7 +7,7 @@ from tqdm import tqdm
 from typing import Union
 
 class LongRopeDataset(Dataset):
-    def __init__(self, data_path, tokenizer, max_len, max_src_len,read_nums:Union[int, None]=None):
+    def __init__(self, data_path, tokenizer, max_len, max_src_len, mode:str='pretrain', read_nums:Union[int, None]=None):
         self.all_data = []
         with open(data_path, "r", encoding="utf-8") as fh:
             if read_nums is None:
@@ -20,9 +20,7 @@ class LongRopeDataset(Dataset):
                     output_text = 'A:' + sample["output"]
                     # Tokenize input and output texts
                     input_tokens = tokenizer.tokenize(input_text)
-                    input_tokens = [token.replace('▁', '') for token in input_tokens]
                     output_tokens = tokenizer.tokenize(output_text)
-                    output_tokens = [token.replace('▁', '') for token in output_tokens]
 
                     # Truncate input and output if they exceed maximum lengths
                     if len(input_tokens) > max_src_len:
@@ -35,7 +33,10 @@ class LongRopeDataset(Dataset):
                     tokens = input_tokens + output_tokens
                     input_ids = tokenizer.convert_tokens_to_ids(tokens)
                     # Pad input_ids with -100 for labels
-                    labels = [tokenizer.pad_id] * len(input_tokens) + input_ids[len(input_tokens):]
+                    if mode == 'sft':
+                        labels = [tokenizer.pad_id] * len(input_tokens) + input_ids[len(input_tokens):]
+                    elif mode == 'pretrain':
+                        labels = input_ids
                     pad_len = max_len - len(input_ids)
                     input_ids = input_ids + [tokenizer.pad_id] * pad_len
                     labels = labels + [tokenizer.pad_id] * pad_len

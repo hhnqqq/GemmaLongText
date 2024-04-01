@@ -1,5 +1,9 @@
 # 使用deepspeed构建一个支持长文本的gemma-2b/7b
 
+# README.md
+- zh_CN [chinese](https://github.com/hhnqqq/GemmaLongText/blob/main/README_ZH.md)
+- en [english](https://github.com/hhnqqq/GemmaLongText/blob/main/README.md)
+
 ### 环境配置
 - 下载好预训练checkpoint: [gemma.ckpt](https://www.kaggle.com/models/google/gemma/frameworks/pyTorch)
 - 准备一台有足够卡的服务器，我的配置是一台租用的8000服务器，cuda版本最好够新

@@ -1,6 +1,8 @@
 # Building a Long Text Supported Model with Deepspeed for GEMMA
 
-[中文](https://github.com/hhnqqq/GemmaLongText/blob/main/README_ZH.md)
+# README.md
+- zh_CN [chinese](https://github.com/hhnqqq/GemmaLongText/blob/main/README_ZH.md)
+- en [english](https://github.com/hhnqqq/GemmaLongText/blob/main/README.md)
 
 ### Environment Setup
 - Download the pre-trained checkpoint: [gemma.ckpt](https://www.kaggle.com/models/google/gemma/frameworks/pyTorch)
@@ -85,7 +87,7 @@ Thanks to the open-source code and model weights from the following repositories
 - [chatglm-finetuning](https://github.com/liucongg/ChatGLM-Finetuning)
 - And other repositories I referenced and borrowed from
 
-### 联系
+### contact
 
 Feel free to contact me via:
 - e-mail：hnhe@mail.ustc.edu.cn

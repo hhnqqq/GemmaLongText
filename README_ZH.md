@@ -1,6 +1,6 @@
 # 使用deepspeed构建一个支持长文本的gemma-2b/7b
 
-# README.md
+## README.md
 - zh_CN [chinese](https://github.com/hhnqqq/GemmaLongText/blob/main/README_ZH.md)
 - en [english](https://github.com/hhnqqq/GemmaLongText/blob/main/README.md)
 

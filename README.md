@@ -1,6 +1,6 @@
 # Building a Long Text Supported Model with Deepspeed for GEMMA
 
-# README.md
+## README.md
 - zh_CN [chinese](https://github.com/hhnqqq/GemmaLongText/blob/main/README_ZH.md)
 - en [english](https://github.com/hhnqqq/GemmaLongText/blob/main/README.md)
 
@@ -10,7 +10,7 @@
 - Install the configuration files of this repository, dependencies will be automatically configured: python setup.py install
 - Prepare a dataset with long text
 
-### 使用方法
+### Usage
 - Choose the fine-tuning method to use, lora/lora+/galore/full
 - Choose the parallel training method to use: pp/dp
 - Customize the corresponding script based on your local conditions, for example, when using lora and pp, edit /scripts/pp_scrtpt/lora_train.sh

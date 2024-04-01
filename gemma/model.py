@@ -23,6 +23,7 @@ from deepspeed.sequence.layer import DistributedAttention
 
 from gemma import config as gemma_config
 from gemma import tokenizer
+import gemma.utils.parallel_states as parallel_states
 
 
 class Sampler(nn.Module):
@@ -86,7 +87,8 @@ class Sampler(nn.Module):
 def precompute_freqs_cis(dim: int,
                          end: int,
                          theta: float = 10000.0,
-                         train_pi: Union[bool,None] = None) -> torch.Tensor:
+                         train_pi: Union[bool,None] = None,
+                         train_pipeline: bool = False) -> torch.Tensor:
     """Precomputes the frequency cis."""
     freqs = 1.0 / (theta**(torch.arange(0, dim, 2)[:(dim // 2)].float() / dim))
     t = torch.arange(end, device=freqs.device)
@@ -94,13 +96,17 @@ def precompute_freqs_cis(dim: int,
         t = (torch.arange(end) / torch.tensor(train_pi)).to(freqs.device)
     # [end,dim]
     freqs = torch.outer(t, freqs).float()
-    # freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
-    return freqs
+    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
+    if train_pipeline:
+        return freqs
+    else:
+        return freqs_cis
 
 
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
     """Applies the rotary embedding to the query and key tensors."""
-    freqs_cis = torch.polar(torch.ones_like(freqs_cis), freqs_cis)
+    if not torch.is_complex(freqs_cis):
+        freqs_cis = torch.polar(torch.ones_like(freqs_cis), freqs_cis)
     x_ = torch.view_as_complex(
         torch.stack(torch.chunk(x.transpose(1, 2).float(), 2, dim=-1),
                     dim=-1))
@@ -264,7 +270,30 @@ class GemmaMLP(nn.Module):
         outputs = self.down_proj(fuse)
         return outputs
 
-
+def naive_attention_func(
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        atten_mask: torch.Tensor,
+        dropout_p: float,
+        scaling: float,
+        is_causal: bool
+    ):
+    L,S = q.size(-2), k.size(-2)
+    scores = torch.matmul(q, k.transpose(2, 3)) * scaling
+    atten_bias = torch.zeros(L, S, dtype=q.dtype)
+    if is_causal:
+        assert atten_mask is None
+        temp_mask = torch.ones(L, S, dtype=torch.bool).tril(diagonal=0)
+        atten_bias.masked_fill_(temp_mask.logical_not(), float("-inf"))
+        atten_bias.to(q.dtype)
+    scores = scores + atten_mask
+    scores = F.softmax(scores.float(), dim=-1).type_as(q)
+    scores = torch.dropout(scores, dropout_p, train=True)
+    # [batch_size, n_local_heads, input_len, head_dim]
+    output = torch.matmul(scores, v)
+    return output
+    
 class GemmaAttention(nn.Module):
 
     def __init__(
@@ -324,7 +353,6 @@ class GemmaAttention(nn.Module):
         xq = xq.view(batch_size, -1, self.num_heads, self.head_dim)
         xk = xk.view(batch_size, -1, self.num_kv_heads, self.head_dim)
         xv = xv.view(batch_size, -1, self.num_kv_heads, self.head_dim)
-
         # Positional embedding.
         xq = apply_rotary_emb(xq, freqs_cis=freqs_cis)
         xk = apply_rotary_emb(xk, freqs_cis=freqs_cis)
@@ -362,16 +390,14 @@ class GemmaAttention(nn.Module):
         elif atten_type == 'ulysses_atten':
             require_version("torch>=2.0.0")
             with torch.backends.cuda.sdp_kernel(enable_flash=True):
-                # TODO
-                pass
+                flash_atten = F.scaled_dot_product_attention
+                dist_atten = DistributedAttention(flash_atten, 
+                                                  parallel_states.get_sequence_parallel_group(),
+                                                  scatter_idx=1,
+                                                  gather_idx=2)
+                output = dist_atten(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
         else:
-            # [batch_size, n_local_heads, input_len, max_seq_len]
-            scores = torch.matmul(q, k.transpose(2, 3)) * self.scaling
-            scores = scores + mask
-            scores = F.softmax(scores.float(), dim=-1).type_as(q)
-            # [batch_size, n_local_heads, input_len, head_dim]
-            output = torch.matmul(scores, v)
-            # [batch_size, input_len, hidden_dim]
+            output = naive_attention_func(q, k, v, atten_mask=mask, dropout_p=0.0, scaling=self.scaling, is_causal=False)
         output = (output.transpose(1, 2).contiguous().view(
             batch_size, input_len, -1))
         output = self.o_proj(output)
@@ -462,7 +488,7 @@ class GemmaModel(nn.Module):
                 kv_write_indices=kv_write_indices,
                 kv_cache=kv_caches[i] if kv_caches is not None else None,
                 mask=mask,
-                atten_type=atten_type
+                atten_type=atten_type,
             )
         hidden_states = self.norm(hidden_states)
         return hidden_states

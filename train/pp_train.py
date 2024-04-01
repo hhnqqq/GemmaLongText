@@ -55,7 +55,8 @@ class EmbeddingPipelineLayer(torch.nn.Module):
         freqs_cis = precompute_freqs_cis(args.head_dim,
                                          input_ids.shape[1],
                                          theta=args.rope_theta,
-                                         train_pi=args.train_pi).to(hidden_states.device)
+                                         train_pi=args.train_pi,
+                                         train_pipeline=True).to(hidden_states.device)
         freqs_cis.requires_grad_(True)
         attention_mask.requires_grad_(True)
         return hidden_states, freqs_cis, attention_mask, labels

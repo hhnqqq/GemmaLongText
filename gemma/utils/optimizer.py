@@ -3,6 +3,7 @@ import torch.optim as optim
 from gemma.utils import print_rank_0
 from gemma.utils.scheduler import AnnealingLR
 from transformers.utils.versions import require_version
+from deepspeed.ops.adam.fused_adam import FusedAdam
 
 def get_optimizer(ds_config, args, model):
     # TODO: 增加对DoRA, pLoRA等微调方法的支持
@@ -89,6 +90,7 @@ def get_regular_optimizer(optim_type, args, model):
             'adam': optim.Adam,
             'adamax': optim.Adamax,
             'sparseadam': optim.SparseAdam,
+            'fusedadamw':FusedAdam
         }.get(optim_type)
         
         if optimizer_class is None:

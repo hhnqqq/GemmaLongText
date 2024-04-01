@@ -14,6 +14,7 @@ from gemma.tokenizer import Tokenizer
 from gemma.parser import base_parser, train_parser, ds_parser
 from gemma.dataset import LongRopeDataset
 from gemma.model import GemmaForCausalLM, Linear, LinearWithLoRA, precompute_freqs_cis
+import gemma.utils.parallel_states as parallel_states
 from gemma.utils.optimizer import get_optimizer
 from gemma.utils import Timer, DataCollator, print_rank_0, read_config, ensure_directory_exists, to_device, get_masks, set_random_seed
 from gemma.utils.params_manager import (
@@ -31,15 +32,27 @@ class TrainModel(torch.nn.Module):
         self.embedder = model.embedder
         self.emb_weight = model.embedder.weight
         self.loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_id)
+        self.freqs_cis = precompute_freqs_cis(args.head_dim,
+                                         args.max_len,
+                                         theta=args.rope_theta,
+                                         train_pi=args.train_pi)
     
     def forward(self, input_ids, labels):
+        if args.num_sp_stages is not None:
+            seq_parallel_world_size = parallel_states.get_sequence_parallel_world_size()
+            seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
+            assert args.max_len % seq_parallel_world_size == 0
+            seq_len_per_group = args.max_len // seq_parallel_world_size
+            local_seq_start = seq_parallel_world_rank * seq_len_per_group
+            local_seq_end = (seq_parallel_world_rank +1) * seq_len_per_group
+            input_ids = input_ids[:, local_seq_start:local_seq_end]
+            labels = labels[:, local_seq_start:local_seq_end]
+            freqs_cis = self.freqs_cis[local_seq_start:local_seq_end,:].to(input_ids.device)
+        else:
+            freqs_cis = self.freqs_cis.to(input_ids.device)
         hidden_states = F.embedding(input_ids, self.emb_weight)
         hidden_states = hidden_states * (torch.tensor(args.hidden_size)**0.5)
-        freqs_cis = precompute_freqs_cis(args.head_dim,
-                                         input_ids.shape[1],
-                                         theta=args.rope_theta,
-                                         train_pi=args.train_pi).to(hidden_states.device)
-        attention_mask = get_masks(input_ids.shape[1], device=hidden_states.device, dtype=hidden_states.dtype)
+        attention_mask = get_masks(input_ids.shape[1]*seq_parallel_world_size, device=hidden_states.device, dtype=hidden_states.dtype)
         freqs_cis.requires_grad_(True)
         attention_mask.requires_grad_(True)
         if self.args.activation_checkpoint:
@@ -76,10 +89,6 @@ def get_parent_model(parent_model, module):
             return parent
     return None
 
-def init_sequence_parallel_group(args):
-    # TODO
-    pass
-
 # load args
 args = ds_parser(train_parser(base_parser())).parse_args()
 model_config = get_model_config(args.variant)
@@ -93,11 +102,13 @@ else:
     torch.cuda.set_device(args.local_rank)
     device = torch.device("cuda", args.local_rank)
     deepspeed.init_distributed(dist_backend="nccl")
-    args.gpu_count = torch.cuda.device_count()
+    args.world_size = dist.get_world_size()
     args.global_rank = dist.get_rank()
 if args.num_sp_stages is not None:
     assert args.atten_type == 'ulysses_atten', 'when using sequence parallism, the attention type must be `ulysses_atten`'
-    # TODO
+    parallel_states.initialize_model_parallel(sequence_model_parallel_size=args.num_sp_stages)
+else:
+    parallel_states.initialize_model_parallel()
 set_random_seed(args.seed)
 
 # load model and dataset
@@ -155,7 +166,8 @@ model, optimizer, _, lr_scheduler = deepspeed.initialize(model=model,
                                                          optimizer=optimizer,
                                                          lr_scheduler=lr_scheduler,
                                                          config=ds_config,
-                                                         model_parameters=[p for p in model.parameters() if p.requires_grad])
+                                                         model_parameters=[p for p in model.parameters() if p.requires_grad],
+                                                         mpu=parallel_states)
 print_trainable_module_names(model)
 tr_loss, min_loss = 0.0, 0.0
 global_step = 0

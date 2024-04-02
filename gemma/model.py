@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Inference-only Gemma model implementation."""
+"""Trainable Gemma model implementation."""
 
 import re
 import torch
@@ -96,7 +96,8 @@ def precompute_freqs_cis(dim: int,
         t = (torch.arange(end) / torch.tensor(train_pi)).to(freqs.device)
     # [end,dim]
     freqs = torch.outer(t, freqs).float()
-    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
+    freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # Complex64
+    # When utilizing pipeline parallelism, it is important to note that complex values should not be transposed between layers.
     if train_pipeline:
         return freqs
     else:
@@ -105,6 +106,7 @@ def precompute_freqs_cis(dim: int,
 
 def apply_rotary_emb(x: torch.Tensor, freqs_cis: torch.Tensor) -> torch.Tensor:
     """Applies the rotary embedding to the query and key tensors."""
+    # If the input value is not complex value, transfer it to complex.
     if not torch.is_complex(freqs_cis):
         freqs_cis = torch.polar(torch.ones_like(freqs_cis), freqs_cis)
     x_ = torch.view_as_complex(
@@ -142,63 +144,6 @@ class Linear(nn.Module):
         output = F.linear(x, weight)
         return output
     
-class LinearWithLoRA(Linear):
-    def __init__(self, rank, lora_scaler, in_features: int, out_features: int, quant: bool):
-        self.lora_scaler = torch.tensor(lora_scaler/rank)
-        super().__init__(in_features, out_features, quant)
-        if self.quant:
-            self.weight_a = nn.Parameter(
-                torch.empty((rank, self.in_features)),
-                dtype=torch.int8
-            )
-            self.weight_b = nn.Parameter(
-                torch.zeros((self.out_features, rank)),
-                dtype=torch.int8
-            )
-            self.weight_a_scaler = nn.Parameter(torch.Tensor(rank))
-            self.weight_b_scaler = nn.Parameter(torch.Tensor(self.out_features))
-        else:
-            self.weight_a = nn.Parameter(torch.empty((rank, self.in_features)))
-            self.weight_b = nn.Parameter(torch.zeros((self.out_features, rank)))
-            std = (1/self.in_features)**0.5
-        nn.init.normal_(self.weight_a, mean=0, std=std)
-    
-    def forward(self, x):
-        if self.quant:
-            weight = self.weight * self.weight_scaler.unsqueeze(-1)
-            weight_a = self.weight_a * self.weight_a_scaler.unsqueeze(-1)
-            weight_b = self.weight_b * self.weight_b_scaler.unsqueeze(-1)
-        else:
-            weight = self.weight
-            weight_a, weight_b = self.weight_a, self.weight_b
-        if hasattr(self, 'weight_a') and hasattr(self, 'weight_b'):
-            lora_weight = torch.matmul(weight_b, weight_a)
-            weight = weight + lora_weight
-        output = F.linear(x, weight)
-        return output
-    
-    def _merge(self):
-        if hasattr(self, 'weight_a') and hasattr(self, 'weight_b'):
-            lora_weight = torch.matmul(self.weight_b, self.weight_a)
-            self.weight = nn.Parameter(self.weight + lora_weight)
-            return True
-        return False
-
-    def merge_and_del(self):
-        if self._merge():
-            delattr(self, 'weight_a')
-            delattr(self, 'weight_b')
-
-    def merge_and_reset(self):
-        if self._merge():
-            nn.init.normal_(self.weight_a, mean=0, std=(1/self.in_features)**0.5)
-            nn.init.zeros_(self.weight_b)
-
-    def print_details(self):
-        print(f"LinearWithLoRA Layer: in_features={self.in_features}, out_features={self.out_features}")
-        print(f"LoRA Rank: {self.weight_a.shape[0]}, Quantized: {self.quant}")
-        
-
 class Embedding(nn.Module):
 
     def __init__(self, num_embeddings: int, embedding_dim: int, quant: bool):
@@ -279,6 +224,7 @@ def naive_attention_func(
         scaling: float,
         is_causal: bool
     ):
+    """The origin scaled dot product attention implemented by gemma"""
     L,S = q.size(-2), k.size(-2)
     scores = torch.matmul(q, k.transpose(2, 3)) * scaling
     atten_bias = torch.zeros(L, S, dtype=q.dtype)
@@ -376,7 +322,6 @@ class GemmaAttention(nn.Module):
                                             self.num_queries_per_kv,
                                             dim=2)
 
-        # q的长度只是input_len而k的长度是max_sql_len，训练的时候不用管，全部设置成max_input_len即可
         # [batch_size, n_local_heads, input_len, head_dim]
         q = xq.transpose(1, 2)
         # [batch_size, n_local_heads, max_seq_len, head_dim]
@@ -387,7 +332,7 @@ class GemmaAttention(nn.Module):
             require_version("torch>=2.0.0")
             with torch.backends.cuda.sdp_kernel(enable_flash=True):
                 output = F.scaled_dot_product_attention(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
-        elif atten_type == 'ulysses_atten':
+        elif atten_type == 'ulysses_flash_atten':
             require_version("torch>=2.0.0")
             with torch.backends.cuda.sdp_kernel(enable_flash=True):
                 flash_atten = F.scaled_dot_product_attention
@@ -396,10 +341,15 @@ class GemmaAttention(nn.Module):
                                                   scatter_idx=1,
                                                   gather_idx=2)
                 output = dist_atten(q, k, v, attn_mask=mask, dropout_p=0.0, is_causal=False)
+        elif atten_type == 'ulysses_atten':
+            dist_atten = DistributedAttention(naive_attention_func, 
+                                              parallel_states.get_sequence_parallel_group(),
+                                              scatter_idx=1,
+                                              gather_idx=2)
+            output = dist_atten(q, k, v, atten_mask=mask, dropout_p=0.0, scaling=self.scaling, is_causal=False)
         else:
             output = naive_attention_func(q, k, v, atten_mask=mask, dropout_p=0.0, scaling=self.scaling, is_causal=False)
-        output = (output.transpose(1, 2).contiguous().view(
-            batch_size, input_len, -1))
+        output = (output.transpose(1, 2).contiguous().view(batch_size, input_len, -1))
         output = self.o_proj(output)
         return output
 

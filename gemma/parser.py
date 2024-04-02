@@ -13,111 +13,112 @@ def train_parser(parser):
     group = parser.add_argument_group('train', 'training configurations')
 
     # --------------- Core hyper-parameters --------------- 
-    group.add_argument('--experiment-name', type=str, default="MyModel",
-                       help="The experiment name for summary and checkpoint."
+    group.add_argument('--experiment-name', type=str, default="MyModel", 
+                       help="The name of the experiment for summary and checkpoint."
                        "Will load the previous name if mode==pretrain and with --load ")
-    group.add_argument('--train-iters', type=int, default=None,
-                       help='total number of iterations to train over all training runs')
-    group.add_argument('--epochs', type=int, default=None,
-                       help='number of train epochs')
-    group.add_argument('--fp16', action='store_true',
-                       help='Run model in fp16 mode')
-    group.add_argument('--bf16', action='store_true',
-                       help='Run model in bf16 mode')
-    group.add_argument('--variant', type=str, default='2b',choices=['test', '2b', '7b'],
-                       help='the variant of the model.')
-    group.add_argument('--save-interval', type=int, default=5000,
-                       help='number of iterations between saves')
-    group.add_argument('--device', type=str, default='cpu',
-                       help='the device to load the model')
-    group.add_argument('--mode', type=str, default='pretrain',
-                       help='training mode')
+    group.add_argument('--train-iters', type=int, default=None, 
+                       help='Total number of iterations to train over all training runs')
+    group.add_argument('--epochs', type=int, default=None, 
+                       help='Number of training epochs')
+    group.add_argument('--fp16', action='store_true', 
+                       help='Run the model in fp16 mode')
+    group.add_argument('--bf16', action='store_true', 
+                       help='Run the model in bf16 mode')
+    group.add_argument('--variant', type=str, default='2b', choices=['test', '2b', '7b'], 
+                       help='The variant of the model.')
+    group.add_argument('--save-interval', type=int, default=5000, 
+                       help='Number of iterations between saves')
+    group.add_argument('--device', type=str, default='cpu', 
+                       help='The device to load the model')
+    group.add_argument('--mode', type=str, default='pretrain', 
+                       help='The training mode')
     
     # --------------------- optimizer -----------------------
-    group.add_argument('--diy-optimizer', action='store_true',
-                       help='weather to diy the optimizer')
-    group.add_argument('--batch-size-per-gpu', type=int, default=4,
-                       help='batch size on a single GPU. batch-size * world_size = total batch_size.')
-    group.add_argument('--lr', type=float, default=1.0e-4,
-                       help='initial learning rate')
-    group.add_argument('--eps', type=float, default=1e-8,
-                       help='initial eps for the optimizer')
-    group.add_argument('--betas', nargs='+', type=float, default=[0.9,0.95],
-                       help='initial eps for the optimizer')
-    group.add_argument('--warmup-min-lr', type=float, default=1.0e-5,
-                       help='minimum learning rate of warmup')
-    group.add_argument('--warmup-max-lr', type=float, default=2.0e-4,
-                       help='maxium learning rate of warmup')
+    group.add_argument('--diy-optimizer', action='store_true', 
+                       help='Whether to DIY the optimizer')
+    group.add_argument('--batch-size-per-gpu', type=int, default=4, 
+                       help='Batch size on a single GPU. batch-size * world_size = total batch_size.')
+    group.add_argument('--lr', type=float, default=1.0e-4, 
+                       help='Initial learning rate')
+    group.add_argument('--eps', type=float, default=1e-8, 
+                       help='Initial epsilon for the optimizer')
+    group.add_argument('--betas', nargs='+', type=float, default=[0.9,0.95], 
+                       help='Initial beta values for the optimizer')
+    group.add_argument('--warmup-min-lr', type=float, default=1.0e-5, 
+                       help='Minimum learning rate for warmup')
+    group.add_argument('--warmup-max-lr', type=float, default=2.0e-4, 
+                       help='Maximum learning rate for warmup')
     group.add_argument('--gradient-accumulation-steps', type=int, default=1, 
-                       help='run optimizer after every gradient-accumulation-steps backwards.')
-    group.add_argument('--auto-warmup-steps', type=int, default=10,
-                       help='the fix warmup steps for training')
-    group.add_argument('--auto-warmup-rate', type=float, default=0.05,
-                       help='the warmup rate for fix warmup steps')
-    group.add_argument('--warmup', type=float, default=0.01,
-                       help='percentage of data to warmup on (.01 = 1% of all '
-                            'training iters). Default 0.01')
-    group.add_argument('--weight-decay', type=float, default=5e-4,
-                       help='weight decay coefficient for L2 regularization')
-    group.add_argument('--lr-decay-style', type=str, default='cosine',
-                       choices=['constant', 'linear', 'cosine', 'exponential'],
-                       help='learning rate decay function')
+                       help='Run optimizer after every gradient-accumulation-steps backwards')
+    group.add_argument('--auto-warmup-steps', type=int, default=10, 
+                       help='The fixed warmup steps for training')
+    group.add_argument('--auto-warmup-rate', type=float, default=0.05, 
+                       help='The warmup rate for fixed warmup steps')
+    group.add_argument('--warmup', type=float, default=0.01, 
+                       help='Percentage of data to warm up on (.01 = 1% of all training iters). Default 0.01')
+    group.add_argument('--weight-decay', type=float, default=5e-4, 
+                       help='Weight decay coefficient for L2 regularization')
+    group.add_argument('--lr-decay-style', type=str, default='cosine', choices=['constant', 'linear', 'cosine', 'exponential'], 
+                       help='Learning rate decay function')
     group.add_argument('--lr-decay-ratio', type=float, default=0.1)
-    group.add_argument('--lr-decay-iters', type=int, default=None,
-                       help='number of iterations to decay LR over,'
-                            ' If None defaults to `--train-iters`*`--epochs`')
-    group.add_argument('--optim-type', type=str, default=None,
-                       help='type of the optimizer')
+    group.add_argument('--lr-decay-iters', type=int, default=None, 
+                       help='Number of iterations to decay LR over. If None, defaults to --train-iters * --epochs')
+    group.add_argument('--optim-type', type=str, default=None, 
+                       help='Type of the optimizer')
 
     # ---------------------------- dataset ------------------------------
     group.add_argument('--read-nums', type=int, default=None,
-                       help='the number of data to read')
+                       help='The number of data to read')
     group.add_argument('--max-len', type=int, default=None,
-                       help='max len of tokens')
+                       help='Maximum length of tokens')
     group.add_argument('--max-src-len', type=int, default=None,
-                       help='max len of input tokens')
+                       help='Maximum length of input tokens')
     
     # --------------------------- parameters ----------------------------
-    group.add_argument('--enable-list', nargs='+', type=str, default=None, 
-                       help='List of enable params')
-    group.add_argument('--disable-list', nargs='+', type=str, default=None, 
-                       help='List of disable params')
-    group.add_argument('--activation-checkpoint', action='store_true', 
-                       help='Train model with activation checkpoint')
+    group.add_argument('--enable-list', nargs='+', type=str, default=None,
+                       help='List of enabled parameters')
+    group.add_argument('--disable-list', nargs='+', type=str, default=None,
+                       help='List of disabled parameters')
+    group.add_argument('--activation-checkpoint', action='store_true',
+                       help='Train the model with activation checkpoint')
 
     # --------------------------- lora ----------------------------------
     group.add_argument('--use-lora', action='store_true',
-                       help='weather to use lora')
+                       help='Whether to use LoRA')
+    group.add_argument('--use-dora', action='store_true',
+                       help='Whether to use DoRA')
     group.add_argument('--use-lora-plus', action='store_true',
-                       help='weather to use lora+')
+                       help='Whether to use LoRA+')
     group.add_argument('--lora-fa', action='store_true',
-                       help='weather to use lora fa')
+                       help='Whether to use LoRA FA')
     group.add_argument('--lora-rank', type=int, default=8,
-                       help='the rank of lora')
+                       help='The rank of LoRA')
     group.add_argument('--lora-plus-scaler', type=int, default=16,
-                       help='the scaler of lora weight b')
+                       help='The scaler of learning rate of LoRA weight b \
+                       In the defualt case, the learning rate of weight b is 16 times of a')
     group.add_argument('--replace-modules', nargs='+', type=str, default=None,
-                       help='List of modules to be replaced by lora')
+                       help='List of modules to be replaced by LoRA')
     
     # --------------------------- galore ----------------------------------
     group.add_argument('--use-galore', action='store_true',
-                    help='weather to use galore')
+                       help='Whether to use Galore')
     group.add_argument('--galore-rank', type=int, default=8,
-                       help='the rank of galore')
+                       help='The rank of Galore')
     group.add_argument('--galore-scaler', type=float, default=0.25,
-                       help='the scaler of galore')
+                       help='The scaler of Galore')
     group.add_argument('--galore-per-layer', action='store_true')
 
     # -------------------------- others ----------------------------
     group.add_argument('--seed', type=int, default=None,
-                       help='random seed')
+                       help='Random seed')
     group.add_argument('--show-loss-step', type=int, default=1)
     group.add_argument('--rope-theta', default=10000.0,
-                       help='rope theta')
+                       help='Rope theta')
     group.add_argument('--train-pi', type=int, default=None,
-                       help='In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
+                       help='The interpolation factor of RoPE, which is used to enhance the sequence length\
+                        In the case of a non-existent interpolation multiple, the rope will remain in its original state.')
     group.add_argument('--atten-type', type=str, default=None,
-                       help='type of attention')
+                       help='Type of attention')
 
     return parser
 

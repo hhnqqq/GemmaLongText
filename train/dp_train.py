@@ -8,13 +8,14 @@ import torch.distributed as dist
 from torch.utils.checkpoint import checkpoint
 from torch.utils.data import DataLoader, RandomSampler
 from torch.utils.data.distributed import DistributedSampler
+import gemma.utils.parallel_states as parallel_states
 
 from gemma.config import *
 from gemma.tokenizer import Tokenizer
 from gemma.parser import base_parser, train_parser, ds_parser
 from gemma.dataset import LongRopeDataset
-from gemma.model import GemmaForCausalLM, Linear, LinearWithLoRA, precompute_freqs_cis
-import gemma.utils.parallel_states as parallel_states
+from gemma.model import GemmaForCausalLM, precompute_freqs_cis
+from gemma.lora import LinearWithLoRA, switch_to_lora
 from gemma.utils.optimizer import get_optimizer
 from gemma.utils import Timer, DataCollator, print_rank_0, read_config, ensure_directory_exists, to_device, get_masks, set_random_seed
 from gemma.utils.params_manager import (
@@ -25,13 +26,24 @@ from gemma.utils.params_manager import (
 )
 
 class TrainModel(torch.nn.Module):
+    """
+    Trainer class for Gemma, responsible for handling input and output during training.
+    """
     def __init__(self, model:GemmaForCausalLM, args, pad_id):
+        """
+        Initializes basic attributes for the trainer class and precomputes fixed values.
+
+        param model: Gemma model with pretrained weight.
+        param args: Arguments from argument parser.
+        param pad_id: Pad index of the tokenizer, used to set ignore index for loss function.
+        """
         super().__init__()
         self.args = args
         self.model = model.model
         self.embedder = model.embedder
         self.emb_weight = model.embedder.weight
         self.loss_fct = torch.nn.CrossEntropyLoss(ignore_index=pad_id)
+        self.attention_mask = get_masks(args.max_len)
         self.freqs_cis = precompute_freqs_cis(args.head_dim,
                                          args.max_len,
                                          theta=args.rope_theta,
@@ -40,8 +52,10 @@ class TrainModel(torch.nn.Module):
     def forward(self, input_ids, labels):
         seq_parallel_world_size = parallel_states.get_sequence_parallel_world_size()
         seq_parallel_world_rank = parallel_states.get_sequence_parallel_rank()
-        if args.num_sp_stages is not None:
-            assert args.max_len % seq_parallel_world_size == 0
+        if args.atten_type is not None and 'ulysses' in args.atten_type:
+            assert args.max_len % seq_parallel_world_size == 0, 'Max input length is not divisble by sequence parallel stages.'
+            assert args.head_nums % seq_parallel_world_size == 0, 'Attention head num is not divisble by sequence parallel stages.'
+            # Split the input ids and lables and freqs cis for deepspeed-ulysses.
             seq_len_per_group = args.max_len // seq_parallel_world_size
             local_seq_start = seq_parallel_world_rank * seq_len_per_group
             local_seq_end = (seq_parallel_world_rank +1) * seq_len_per_group
@@ -52,9 +66,9 @@ class TrainModel(torch.nn.Module):
             freqs_cis = self.freqs_cis.to(input_ids.device)
         hidden_states = F.embedding(input_ids, self.emb_weight)
         hidden_states = hidden_states * (torch.tensor(args.hidden_size)**0.5)
-        attention_mask = get_masks(input_ids.shape[1]*seq_parallel_world_size, device=hidden_states.device, dtype=hidden_states.dtype)
+        attention_mask = self.attention_mask.to(hidden_states.device).to(hidden_states.dtype)
+        # Using activation checkpoint to reduce memory consumption or not.
         freqs_cis.requires_grad_(True)
-        attention_mask.requires_grad_(True)
         if self.args.activation_checkpoint:
             logits = checkpoint(self.model, hidden_states, freqs_cis, attention_mask, self.args.atten_type)
         else:
@@ -65,34 +79,11 @@ class TrainModel(torch.nn.Module):
         loss = self.loss_fct(shift_logits.reshape(-1, shift_logits.size(-1)), shift_labels.reshape(-1))
         return loss
 
-def switch_to_lora(model, replace_names, rank=4, lora_scaler=32):
-    for name, module in model.named_modules():
-        for replace_name in replace_names:
-            if isinstance(module, Linear) and replace_name in name:
-                # 创建LinearWithLoRA实例
-                lora_layer = LinearWithLoRA(rank, lora_scaler, module.in_features, module.out_features, module.quant)
-                # 复制原始参数
-                lora_layer.weight.data = module.weight.data
-                if module.quant:
-                    lora_layer.weight_scaler = module.weight_scaler
-                # 用新层替换旧层
-                parent = get_parent_model(model, module)
-                setattr(parent, list(parent._modules.items())[list(parent._modules.values()).index(module)][0], lora_layer)
-
-def get_parent_model(parent_model, module):
-    for _, sub_module in parent_model._modules.items():
-        if sub_module is module:
-            return parent_model
-    for _, sub_module in parent_model._modules.items():
-        parent = get_parent_model(sub_module, module)
-        if parent:
-            return parent
-    return None
-
-# load args
+# Load arguments
 args = ds_parser(train_parser(base_parser())).parse_args()
 model_config = get_model_config(args.variant)
 args.head_dim = model_config.head_dim
+args.head_num = model_config.num_attention_heads
 args.hidden_size = model_config.hidden_size
 args.num_layers = model_config.num_hidden_layers
 
@@ -112,24 +103,22 @@ else:
 set_random_seed(args.seed)
 
 # load model and dataset
-print_rank_0('--->loading the model', args.global_rank)
+print_rank_0('--->Loading the model.', args.global_rank)
 tokenizer = Tokenizer(args.tokenizer_path)
 model = GemmaForCausalLM(model_config)
 if args.ckpt_path is not None:
     model.load_weights(args.ckpt_path)
 model = TrainModel(model, args, tokenizer.pad_id)
+
 if args.use_lora or args.use_lora_plus:
-    if args.replace_modules is None:
-        args.replace_modules = ['qkv_proj']
-    switch_to_lora(model, args.replace_modules, rank=4)
+    switch_to_lora(model, args.replace_modules, rank=args.lora_rank, use_dora=args.use_dora)
     if args.lora_fa:
         enable_trainable_params(model, ['weight_b'])
     else:
-        enable_trainable_params(model, ['weight_a','weight_b'])
-elif args.disable_list is not None:
-    disable_untrainable_params(model, args.disable_list)
-elif args.enable_list is not None:
-    enable_trainable_params(model, args.enable_list)
+        enable_trainable_params(model, ['weight_a', 'weight_b'])
+elif args.disable_list or args.enable_list:
+    param_list = args.disable_list if args.disable_list is not None else args.enable_list
+    disable_untrainable_params(model, param_list) if args.disable_list else enable_trainable_params(model, param_list)
 
 if args.fp16:
     model.to(device).half()

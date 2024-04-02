@@ -69,9 +69,10 @@ set +x
 - 2024-03-21 Added support for pure dp training
 - 2024-03-23 Added support for lora-fa
 - <b>2024-04-01 Added support for deepspeed-ulysses, now able to train longer models!!</b>
+- 2024-04-02 Added support for DoRA
 
 ### TODO
-- Support more lora versions like dora
+- Support more lora versions like plora
 - Support more length extrapolation methods
 - Support more memory-efficient methods
 - And more advanced technologies

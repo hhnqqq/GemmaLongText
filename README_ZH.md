@@ -70,9 +70,10 @@ set +x
 - 2024-03-21 新增支持纯dp训练
 - 2024-03-23 新增支持lora-fa
 - <b>2024-04-01 新增支持deepspeed-ulysses，能够训练更长的模型啦！！</b>
+- 2024-04-02 新增DoRA支持
 
 ### TODO
-- 支持更多的lora版本如dora
+- 支持更多的lora版本如plora
 - 支持更多的长度外推方法
 - 支持更多的memory efficient方法
 - 以及更多的先进技术
